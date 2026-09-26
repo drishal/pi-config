@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Second line of defence behind the allowlist .gitignore: `git add -f` bypasses
+# ignore rules, and a new extension can carry a pasted key. Enabled per clone by
+# setup.sh (git config core.hooksPath .githooks). Bypass consciously with
+# `git commit --no-verify` only after reading what it flagged.
+set -uo pipefail
+fail=0
+
+# 1. Every staged path must be one the allowlist tracks (keep in sync with .gitignore).
+allowed='^(\.gitignore|\.gitattributes|\.githooks/.*|README\.md|SETUP\.md|setup\.sh|docs/.*|agent/(AGENTS\.md|settings\.json|pi\.env|pi-fff\.json|subagents\.json|zentui\.json|model-state_example\.json|extensions/.*|patches/.*|themes/.*))$'
+never='(^|/)(auth\.json|models\.json|models-store\.json|mcp\.json|model-state\.json|\.env|trust\.json)$|(^|/)(sessions|memories|npm|stream|fff|subagents|secrets|tasks|skills)/'
+while IFS= read -r -d '' path; do
+	if [[ ! $path =~ $allowed ]] || [[ $path =~ $never ]]; then
+		echo "pre-commit: refusing to commit '$path' (not on the allowlist, or private state)" >&2
+		fail=1
+	fi
+done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+
+# 2. Token-shaped strings in staged content.
+secrets='sk-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|xai-[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|"(access|refresh)_token" *: *"[^"]{12,}"|[Bb]earer [A-Za-z0-9._~+/-]{24,}'
+if hits=$(git diff --cached -U0 --diff-filter=ACMR | grep -E '^\+' | grep -nE "$secrets"); then
+	echo "pre-commit: staged content looks like it contains a secret:" >&2
+	printf '%s\n' "$hits" | sed -E 's/(.{12}).*/\1…/' >&2
+	fail=1
+fi
+
+# 3. settings.json must arrive without machine keys (the clean filter should have run).
+if git diff --cached --name-only | grep -qx 'agent/settings.json'; then
+	if git show :agent/settings.json | grep -qE '"(defaultProvider|defaultModel|defaultThinkingLevel|lastChangelogVersion)"'; then
+		echo "pre-commit: staged agent/settings.json still has machine keys — run ./setup.sh (it defines the clean filter)" >&2
+		fail=1
+	fi
+fi
+
+exit $fail

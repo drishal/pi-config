@@ -1,0 +1,46 @@
+# ALLOWLIST. Everything under ~/.pi is ignored unless listed here, because this
+# directory is also pi's live state: sessions, memories, auth tokens, provider
+# keys, MCP credentials, caches, npm, stream logs, conversation exports. Anything
+# pi or an extension creates later stays private by default. To track a new
+# file, add a `!` line for it — never replace this with a denylist.
+# (.githooks/pre-commit re-checks every staged path against the same list.)
+
+/*
+!/.gitignore
+!/.gitattributes
+!/.githooks/
+!/README.md
+!/SETUP.md
+!/setup.sh
+!/docs/
+
+!/agent/
+/agent/*
+!/agent/AGENTS.md
+!/agent/settings.json
+!/agent/pi.env
+!/agent/pi-fff.json
+!/agent/subagents.json
+!/agent/zentui.json
+!/agent/model-state_example.json
+!/agent/extensions/
+!/agent/patches/
+!/agent/themes/
+# skills/ is deliberately NOT listed: skills are personal, like mcp.json —
+# SETUP.md step 7b suggests sources instead of shipping any.
+
+# Inside the allowed directories: machine-local and generated files.
+# (A machine-only extension would be listed here by name.)
+# themes/<name>.json is generated from <name>.yaml by base16-theme.ts;
+# stylix.yaml is written by home-manager. Hand-written JSON themes are listed.
+/agent/themes/*.json
+!/agent/themes/claude-dark.json
+/agent/themes/stylix.yaml
+
+# Anywhere
+*.bak
+*.tmp
+*.log
+__pycache__/
+node_modules/
+.DS_Store
