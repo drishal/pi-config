@@ -73,53 +73,16 @@ while IFS= read -r spec; do
 	pi install "$spec" >/dev/null 2>&1 || { say "  FAILED  pi install $spec"; exit 1; }
 done < <(jq -r '.packages[]? | if type=="string" then . else .source end' "$PI/settings.json")
 
-# --- 3b. memory storage ---------------------------------------------------
-# mem0ai (behind the mem0 extension) imports some of its PEER dependencies at
-# load time — better-sqlite3 for the local store, and pg, which it imports even
-# though the SQLite store never uses it. pi installs with peers disabled, so
-# after `pi install` memory fails with "Mem0 init failed: Cannot find package".
-# Load mem0 and install whatever it reports missing (at mem0ai's declared peer
-# range) until it loads, with pi's own npm flags (--legacy-peer-deps): plain
-# `npm install` would also pull in every other package's peers (~370 modules).
-mem0_missing() {   # first package mem0 cannot load; "" if fine; "!msg" otherwise
-	(cd "$PI/npm" && node -e '
-		import("mem0ai/oss")
-			.then(() => { new (require("better-sqlite3"))(":memory:"); })
-			.catch((e) => {
-				const m = /Cannot find (?:package|module) \x27([^\x27]+)\x27/.exec(e.message);
-				console.log(m ? m[1] : `!${String(e.message).split("\n")[0]}`);
-			});' 2>/dev/null)
-}
-MEM0="$PI/npm/node_modules/mem0ai/package.json"
-if [ -f "$MEM0" ]; then
-	for _ in 1 2 3 4 5 6; do
-		miss="$(mem0_missing)"
-		[ -z "$miss" ] && { ok "mem0 dependencies load"; break; }
-		case "$miss" in '!'*) say "  FAILED  mem0 does not load: ${miss#!}"; break ;; esac
-		name="$(node -p "const s='$miss'; s.startsWith('@') ? s.split('/').slice(0, 2).join('/') : s.split('/')[0]")"
-		range="$(node -p "require('$MEM0').peerDependencies?.['$name'] ?? 'latest'")"
-		VERB=install act "$name@$range (mem0 peer)"
-		[ $CHECK -eq 1 ] && break
-		npm install "$name@$range" --prefix "$PI/npm" --legacy-peer-deps --no-audit --no-fund \
-			</dev/null >/dev/null 2>&1 || { say "  FAILED  npm install $name@$range"; break; }
-	done
-	# mem0ai imports @langchain/core only once its "langchain" LLM is in use —
-	# smart-capture.ts uses it to send extraction through microcall.ts — so the
-	# load test above never asks for it. Same peer range, same npm flags.
-	if (cd "$PI/npm" && node -e 'import("@langchain/core/messages")' >/dev/null 2>&1); then
-		ok "@langchain/core (mem0 extraction via microcall)"
-	else
-		range="$(node -p "require('$MEM0').peerDependencies?.['@langchain/core'] ?? 'latest'")"
-		VERB=install act "@langchain/core@$range (mem0 peer, lazy)"
-		[ $CHECK -eq 1 ] || npm install "@langchain/core@$range" --prefix "$PI/npm" --legacy-peer-deps --no-audit --no-fund \
-			</dev/null >/dev/null 2>&1 || say "  FAILED  npm install @langchain/core@$range"
-	fi
-	# The shared settings block names no models: remember-model.ts exports
-	# them from model-state.json's "mem0" section, which only this machine has.
-	for k in llm embedder; do
-		jq -e --arg k "$k" '.mem0[$k] | strings | length > 0' "$PI/model-state.json" >/dev/null 2>&1 ||
-			say "  NOTE    model-state.json has no mem0.$k; memory cannot run (SETUP.md step 8)"
-	done
+# --- 3b. memory (extensions/memory-book) ----------------------------------
+# Nothing to install: memory-book is plain TypeScript with no npm dependencies.
+# Its embeddings come from an OpenAI-compatible endpoint (model-state.json
+# "memory.embed", default llama-embed on 127.0.0.1:8090); without one, memory
+# search still works on keywords alone.
+EMBED_URL="$(jq -r '.memory.embed.url // "http://127.0.0.1:8090/v1"' "$PI/model-state.json" 2>/dev/null || echo "http://127.0.0.1:8090/v1")"
+if [ -n "$EMBED_URL" ] && curl -s -m 3 "$EMBED_URL/models" >/dev/null 2>&1; then
+	ok "memory embeddings answer at $EMBED_URL"
+else
+	say "  NOTE    no embedding server at ${EMBED_URL:-(disabled)}; memory search is keyword-only (SETUP.md step 8)"
 fi
 
 # --- 4. what this script cannot do ----------------------------------------
@@ -133,7 +96,7 @@ Private, per machine — never tracked (see SETUP.md):
   $PI/.env               optional per-machine env and secrets; overrides the
                          shared agent/pi.env (extensions/00-env.ts; /env lists both)
   $PI/skills/            your skills — personal, like mcp.json (SETUP.md step 7b)
-  $PI/model-state.json   model pick + "mem0"/"micro" sections (remember-model.ts;
+  $PI/model-state.json   model pick + "micro"/"memory" sections (remember-model.ts;
                          agent/model-state_example.json shows the shape)
 
 Before committing: git status shows only allowlisted config. settings.json is

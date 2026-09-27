@@ -28,7 +28,7 @@
  *
  * Config — settings.json (all optional):
  *   "statusline": {
- *     "hide": ["mem0"],                    // extension status keys not to show
+ *     "hide": ["memory"],                  // extension status keys not to show
  *     "contextThresholds": {               // [percent, tokens]: first one reached
  *       "warning": [70, 150000],
  *       "error": [90, 500000]

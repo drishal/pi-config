@@ -10,7 +10,7 @@ Follow it top to bottom.
 > ```bash
 > git clone <this repo> ~/.pi     # a fresh machine (before first running pi)
 > ~/.pi/setup.sh --check          # report what is missing, change nothing
-> ~/.pi/setup.sh                  # git safeguards, packages, mem0 deps
+> ~/.pi/setup.sh                  # git safeguards, packages, memory check
 > ```
 >
 > That covers steps 4, 5, 6 and 7. You still need steps 1–2
@@ -120,7 +120,8 @@ pi creates most of this on first run. What matters:
 | `auth.json`, `models-store.json`       | OAuth tokens from `/login`                 | **No** (pi)   |
 | `settings.json`                        | Global settings, extensions, theme         | Yes (step 4; runtime keys filtered) |
 | `mcp.json`                             | MCP server definitions                     | **No** (yours; suggestions in step 5) |
-| `model-state.json`, `.env`             | Model pick, mem0/micro models; per-machine env and secrets | **No** (per machine) |
+| `model-state.json`, `.env`             | Model pick, memory/micro models; per-machine env and secrets | **No** (per machine) |
+| `book/`                                | The memory book: your private notes (step 8) | **No** (private; never synced) |
 | `pi.env`                               | Shared env switches                        | Yes (step 4b) |
 | `npm/`                                 | pi's package install tree                  | **No** (rebuilt by `setup.sh`) |
 | `extensions/`                          | Local TypeScript extensions                | Yes, except the machine-local ones (step 7) |
@@ -134,7 +135,7 @@ pi creates most of this on first run. What matters:
 `AGENTS.md` is worth calling out: it carries the MCP routing rules that tell
 the model which tool to reach for (`web_search`/`web_fetch` for the web,
 obscura for pages that need a real browser, grep_app for public code, context7
-for library docs, nixos for packages; memory is the mem0 extension, step 8). Without it the
+for library docs, nixos for packages; memory is the memory book, step 8). Without it the
 servers are present but rarely chosen well.
 
 ## 4. `settings.json` (non-model settings)
@@ -234,7 +235,7 @@ other extension runs (the `00-` prefix makes it load first — keep it):
 
 | File | Scope | Holds |
 |---|---|---|
-| `agent/pi.env` | tracked in this repo | non-secret switches: `MEM0_TELEMETRY=false`, `PI_BG_FEATURES=process` |
+| `agent/pi.env` | tracked in this repo | non-secret switches, e.g. `PI_BG_FEATURES=process` |
 | `~/.pi/agent/.env` | this machine only, never committed (not on the allowlist) | per-machine values and secrets |
 
 `.env` overrides `pi.env`; a variable exported in your shell overrides both, so
@@ -318,8 +319,7 @@ An MCP search server such as `argus` is redundant alongside it.
 | `obscura`   | STDIO | The `obscura` Rust binary on `PATH`. Headless browser / page render.                                                                       |
 | `nixos`     | STDIO | `uvx`. Query nixpkgs / NixOS options.                                                                                                      |
 
-Memory is not an MCP server any more: the mem0 extension (step 8) replaced
-mnemosyne here.
+Memory is not an MCP server: it is the memory-book extension (step 8).
 
 ## 6. Extensions (npm packages)
 
@@ -367,8 +367,6 @@ What they are:
 - `pi-x-search` — searches X with verbatim post quotes and resolved URLs.
   Needs xAI auth (`/login` → xAI, or `XAI_API_KEY`). Note it **searches**;
   it cannot fetch a specific X URL — use obscura for that.
-- `@amaster.ai/pi-memory-mem0` — cross-session memory, per project. Needs a
-  per-machine config block and two extra npm modules; see step 8.
 - `@joemccann/pi-pdf` — 12 PDF tools (text/table extraction, `pdf_to_images`,
   merge/split, forms, OCR, …) plus a `pdf` skill. It runs `python3` from
   `PATH` with no way to point it elsewhere, so that `python3` must have
@@ -402,7 +400,7 @@ starship's text last. Settings, all optional, in `settings.json`:
 
 ```json
 "statusline": {
-  "hide": ["mem0"],
+  "hide": [],
   "contextThresholds": { "warning": [70, 150000], "error": [90, 500000] },
   "separator": " · ",
   "starship": true
@@ -447,12 +445,11 @@ machine only would be listed by name in `.gitignore` instead):
 | `read-guard/` | Trims a `read` only when it would overflow the context window, returning the first 30 lines plus a use-grep-instead directive. From little-coder. Replaced `pi-mono-context-guard`, which capped every read at 120 lines regardless of pressure. |
 | `compaction-continue/` | Watchdog that nudges pi to resume when a turn stalls. Upstream is unmaintained since 2026-05; the compaction half it was written for was fixed in pi 0.84.4, the stalled-turn half is still live. |
 | `sudo-session.ts` | `/sudo` elevation for the bash tool. |
-| `remember-model.ts` | Persists last model + thinking level across sessions in `model-state.json`, and exports that file's `mem0` section (memory models, optional separate embedder provider/URL) as the env vars the shared mem0 settings expand. |
+| `remember-model.ts` | Persists last model + thinking level across sessions in `model-state.json` and re-applies them on startup. |
 | `microcall.ts` | One-shot side calls for other extensions (`globalThis[Symbol.for("pi.microcall")]`), each run as a fresh isolated in-process pi session: no extensions, skills, AGENTS.md or tools, in-memory, thinking off. Because it is a real pi session, requests carry pi's own provider headers — so it works on providers that reject raw SDK calls (OpenCode Go). Model chain: `model-state.json` `"micro"` (`model` + `fallbacks`), else the caller's default, else the session model. `/microcall` shows the chain and recent calls; `/microcall test` round-trips. |
 | `eval/` | `eval` tool: Python (`runner.py`, plain CPython — `python3` on PATH or `EVAL_PYTHON`) and JavaScript (`kernel.cjs`, Node REPL semantics) in persistent per-session kernels. Last-expression value, top-level await, `!cmd`/`%pip` in Python; Ctrl+C/timeout interrupts a cell, and a kernel that will not stop is restarted. Modelled on omp's `eval`. |
-| `smart-capture.ts` | Write gate for mem0: judges each prompt's final answer (YES/NO) and only then stores it. The judge and mem0's fact extraction both run through `microcall.ts` (extraction via mem0ai's `langchain` LLM hook, which needs `@langchain/core`). Needs `"autoCapture": false` on pi-memory-mem0. `/mem0gate` for status. |
 | `00-env.ts` | Loads `pi.env` (shared) and `.env` (this machine) into the environment before every other extension; `/env` shows names and sources. See step 4b. |
-| `mem0-recall.ts` | Draws mem0's recall message as one `● Recalled N memories` line (Ctrl+O expands) instead of a full tinted block. `MEM0_RECALL=hide`/`full` in its header. |
+| `memory-book/` | Long-term memory as Markdown notes in `~/.pi/agent/book/` — recall, capture, the `memory` tool, `/remember`, `/memory`. See step 8. |
 | `herdr-agent-state.ts` | Publishes agent state for desktop integrations. |
 | `statusline.ts` | The two-line footer: model / provider / thinking and extension statuses, then the real `starship prompt` plus context, tokens, cache hit rate, cost and tok/s. See step 6b. |
 | `local-llama-autodetect.ts` | Finds a running llama.cpp `llama-server` (`$LOCAL_LLAMA_URL`, else `models.json`'s `local-model` baseUrl, else `localhost:8081`/`8080`) and registers it as the `local-model` provider with the server's real context window, thinking levels and vision support. `/local-model` re-detects after you restart the server with another model. Fails fast and registers nothing when no server answers. |
@@ -509,130 +506,96 @@ this session, so the npm extensions and MCP servers are **not yet loaded** —
 `/mcp` will show nothing until you restart. Exit pi and relaunch it, then
 continue from step 8.
 
-## 8. Memory (mem0)
+## 8. Memory (memory book)
 
-Cross-session memory is the `@amaster.ai/pi-memory-mem0` extension, already in
-`packages` (step 4). It runs mem0 **in-process** ("embedded" mode) — no
-Docker, no server: memories live in three SQLite files under
-`~/.pi/agent/memories/`, kept separately per project (per working directory).
+Long-term memory is `extensions/memory-book/`: a small book of Markdown notes
+you can read and fix by hand, in `~/.pi/agent/book/`. The book is private — no
+git repo, not synced, outside this repo's allowlist and on the pre-commit
+never-list — because pi fills it with what it learns about you and your projects.
 
-- **Gated capture** — mem0's own `autoCapture` is off; `extensions/smart-capture.ts`
-  owns capture instead. After each prompt it skips acknowledgements and slash
-  commands, asks mem0's extraction model a one-word "durable fact? YES/NO"
-  about your message plus the final answer, and only on YES hands the pair to
-  mem0 (same provider, scoping and `customInstructions`). A judge error stores
-  anyway; if the gate cannot start it warns, since nothing else would save.
-  `/mem0gate` shows its decisions; `MEM0_GATE=off` disables it.
-- **Model calls go through pi** — the judge and mem0's fact extraction both
-  run as `extensions/microcall.ts` calls (a fresh isolated pi session each),
-  not through mem0's own OpenAI/Anthropic SDK clients. The model is
-  `model-state.json`'s `"micro"` chain if set, else mem0's `llm` below.
-- **Automatic recall** — at the start of each session (`recallFrequency:
-  "session"`) the `topK: 3` closest memories are added to the conversation as
-  untrusted data, not to the system prompt, so prompt caching is unaffected.
-- **`mem0_memory` tool** and **`/mem0`** commands (`status`, `search`,
-  `profile`, `add`, `delete`) for looking things up or editing by hand.
+```
+book/INDEX.md                    generated table of contents
+book/user/<chapter>.md           about you: preferences, environment, workflow
+book/projects/<id>/<chapter>.md  one project: decisions, conventions, gotchas
+book/projects/<id>/journal.md    recent session digests (medium-term, expire)
+book/.index/                     search vectors (derived; safe to delete)
+book/.history/                   a chapter's previous text before each rewrite
+```
 
-**Per-machine config.** mem0 needs to know which models to use, and model names
-never enter this repo. The `pi-memory-mem0` block in `settings.json` is shared
-(it is in this repo) but names no models — it expands environment variables:
+A chapter is `## Section` blocks of dated bullets. Project ids come from the
+git remote, so every checkout of a repo shares its notes and other projects'
+notes never appear.
+
+Memory has tiers, and the capture model sorts what it reads between them:
+
+| Tier | Holds | Lives | Reaches the model |
+|---|---|---|---|
+| short | the live session | the session | pi's own context |
+| medium — `journal.md` | one digest per session: Done / Tried / Failed / Decided / Open / Next | `journal.ttlDays` (30), then one promotion pass moves lasting facts into chapters | the last `journal.recall` (2) digests at session start |
+| long — chapters | durable facts: preferences, decisions, conventions, gotchas | until changed | chapter list + matching notes at session start |
+| archive | pi's own session files, verbatim | as long as pi keeps them | only on request: `memory` action `history` |
+
+Size routes too, in code: a note is one fact of at most 300 characters; a
+"fact" longer than that is moved into the session's digest; digests are at
+most 8 bullets of 240 characters; code, logs and long explanations are never
+stored — they stay searchable in the archive.
+
+- **Recall** — before the first prompt of a session (and again after a
+  compaction), one message: the chapters in scope, the last sessions' digests
+  (at most 5 lines each, open and decided items first) and the matching notes.
+  Reads are budgeted and bullet-level: each fact is scored on its own and only
+  matching facts are shown under their heading, until `recall.budgetTokens` is
+  spent — on LoCoMo this delivers the same evidence as whole-section reads for
+  about a third fewer tokens. Search is BM25 plus embeddings fused with RRF; a note must reach
+  `minCos` similarity to be recalled, and search falls back to keywords when
+  the embedding server is down. Shown as one `● Memory · …` line; Ctrl+O expands.
+- **Capture** — after each agent run, one small model call reads the new turns
+  against the notes already on the subject and proposes add / update / delete —
+  usually nothing. Plain acknowledgements skip the call. Credentials, notes over
+  300 characters and updates that only reword a note are refused in code.
+- **`memory` tool** — `search`, `read` a chapter or `INDEX`, `write` /
+  `update` / `delete` a note, `history` (keyword search over past sessions).
+- **Commands** — `/remember <fact>` (the model files it; saved verbatim to
+  `notes › Inbox` if the model call fails), `/memory` (status and recent
+  captures), `/memory search <q>` (ranks), `/memory reindex`, `/memory tidy`
+  (merges duplicates and drops stale notes, one chapter at a time).
+
+**Models** go in `model-state.json` `"memory"` (per machine; see
+`model-state_example.json`). Everything has a default:
 
 ```json
-"pi-memory-mem0": {
-  "mode": "embedded",
-  "oss": {
-    "llm":      { "provider": "${MEM0_PROVIDER:-litellm}", "config": { "model": "${MEM0_LLM_MODEL}" } },
-    "embedder": { "provider": "${MEM0_EMBED_PROVIDER:-litellm}",
-                  "config": { "model": "${MEM0_EMBED_MODEL}", "baseURL": "${MEM0_EMBED_URL}" } }
-  }
+"memory": {
+  "llm":    { "mode": "pi" },
+  "embed":  { "url": "http://127.0.0.1:8090/v1", "model": "embeddinggemma" },
+  "recall": { "enabled": true, "budgetTokens": 400, "maxChars": 2800, "minCos": 0.3 },
+  "capture": "auto",
+  "journal": { "enabled": true, "ttlDays": 30, "recall": 2, "maxBullets": 8 }
 }
 ```
 
-The values come from the `"mem0"` section of `~/.pi/agent/model-state.json` —
-the same per-machine file that remembers your model picks, never tracked, synced
-or committed (`agent/model-state_example.json` here shows the shape).
-`extensions/remember-model.ts` exports it as environment variables when pi
-starts, before mem0 reads its settings; a variable already set in your shell
-wins. Add it on each machine:
+`llm.mode` picks how capture and tidy reach a model:
 
-```json
-"mem0": {
-  "llm": "<fast chat model>",
-  "embedder": "<embedding model>",
-  "provider": "<pi provider>"
-}
-```
+- `"pi"` — a minimal isolated pi session through `microcall.ts` (from the CLI,
+  one built from pi's SDK). Required for providers that only accept a coding
+  agent's own traffic, such as OpenCode Go. `"model": "provider/id"` pins one;
+  without it the `"micro"` chain is used.
+- `"raw"` — a plain OpenAI-compatible `/chat/completions` call, for a server you
+  run (llama-server, vLLM) or a provider that allows direct API use:
+  `{ "mode": "raw", "baseUrl": "http://127.0.0.1:8081/v1", "model": "…",
+  "apiKeyEnv": "…", "extraBody": { "chat_template_kwargs": { "enable_thinking": false } } }`.
+  OpenCode Go URLs are refused in this mode.
 
-(`provider` is optional and defaults to `litellm`. Model and thinking-level
-writes leave this section alone.)
+`embed.url` is any OpenAI-compatible `/embeddings` endpoint; set it to `""` for
+keyword-only search. EmbeddingGemma, Qwen3-Embedding and nomic get their task
+prefixes automatically; others take `queryPrefix` / `docPrefix`. On
+nixos-desktop the endpoint is the `llama-embed` home-manager user service
+(`NixOS/home/nixos-desktop/llama-embed.nix`): EmbeddingGemma-300M on
+llama-server, CPU only (the GPU is hidden from the unit, `Nice=10`), ~500 MB
+RAM, ~13 ms a query, ~25 new sections a second.
 
-**When the provider has no embedding models** — OpenCode Go, for one
-(`/v1/embeddings` is a 404) — point the embedder at a local server with two
-more keys; the embedder otherwise follows `provider`:
-
-```json
-"mem0": {
-  "provider": "opencode-go",
-  "llm": "<fast chat model>",
-  "embedder": "embeddinggemma",
-  "embedderProvider": "lmstudio",
-  "embedderUrl": "http://127.0.0.1:8090/v1"
-},
-"micro": {
-  "model": "opencode-go/<cheap model>",
-  "fallbacks": ["opencode-go/<another>"]
-}
-```
-
-`lmstudio` is mem0ai's generic OpenAI-compatible embedder, so any
-`/v1/embeddings` server works. On nixos-desktop that is the `llama-embed`
-home-manager user service (`NixOS/home/nixos-desktop/llama-embed.nix`):
-EmbeddingGemma-300M on llama-server, CPU only (the GPU is hidden from the
-unit), ~500 MB RAM, ~9 ms a query. It won a CPU benchmark of mem0-style recall
-against Qwen3-Embedding-0.6B, granite-97m-r2, nomic v1.5 and jina-v5-nano,
-largely because mem0 embeds raw text with no query/document prefixes.
-
-The `"micro"` chain matters on OpenCode Go: it rejects requests without pi's
-`x-opencode-session` header and asks for real coding-agent traffic, so mem0's
-own SDK clients cannot talk to it — `microcall.ts` does, as pi. Keep personal
-data off "Contributor" models (their prompts train the vendor's models). The
-one gap: pi-memory-mem0's own instance still builds its LLM from these
-settings, so its `mem0_memory` "add" action and `/mem0 add` fail on such a
-provider. Recall, search and gated capture all work.
-
-The provider is any pi provider name — keys and base URLs come from pi's own
-registry, so there is nothing else to configure. Pick a fast chat model for
-extraction (it runs once per turn) and any OpenAI-compatible embedding model;
-the vector size is detected automatically. `setup.sh` prints a NOTE when
-`mem0.llm` or `mem0.embedder` is missing.
-
-**Load-time dependencies.** mem0 imports two of its *peer* dependencies as
-soon as it loads: `better-sqlite3` (the store) and `pg` (imported even though
-the SQLite store never uses it). pi installs packages with peers disabled, so
-after a plain `pi install` memory fails with "Mem0 init failed: Cannot find
-package". `setup.sh` step 3b loads mem0 and installs whatever it reports
-missing, with pi's own npm flags, until it loads. By hand:
-
-```bash
-npm install better-sqlite3 pg --prefix ~/.pi/agent/npm --legacy-peer-deps
-```
-
-A third peer, `@langchain/core`, is imported only once mem0ai's `langchain`
-LLM is used — which smart-capture does to route extraction through
-`microcall.ts` — so the load test cannot see it; `setup.sh` installs it
-explicitly, at mem0ai's declared range.
-
-(Plain `npm install` inside `npm/` would also pull in every other package's
-peers — hundreds of extra modules.) npm downloads a prebuilt `better-sqlite3`
-binary for common platforms; otherwise it compiles, which needs `python3`,
-`make` and a C++ compiler.
-
-**Check:** run `/mem0 status`. (Its status is hidden from the footer by
-`"statusline": { "hide": ["mem0"] }` in `settings.json`; drop `"mem0"` there to
-show it again.)
-
-Memories are separate from Hermes's Mnemosyne store by design — each agent
-keeps its own.
+**CLI** — `node ~/.pi/agent/extensions/memory-book/cli.ts status | search <q> |
+recall <prompt> | capture < transcript | history <q>` works outside pi (`--project <id>`;
+`PI_MEMORY_DIR` points it at another book).
 
 ## 9. Checklist (user-provided, outside this repo)
 
@@ -652,7 +615,7 @@ pi                       # launches; no config errors
 # inside pi:
 /mcp                     # lists every server you configured, each "connected"
 # tools from whichever servers you configured should appear
-/mem0 status             # memory active (step 8)
+/memory                  # memory book status (step 8)
 ```
 
 Then check that an extension tool like `ask_user_question` or the pi-lens
@@ -667,7 +630,7 @@ from step 4 shows everything enabled; try a tool provided by one of them (e.g.
 Also confirm the two things that fail quietly:
 
 ```bash
-~/.pi/setup.sh --check                             # packages, mem0 deps, git safeguards
+~/.pi/setup.sh --check                             # packages, memory embeddings, git safeguards
 git -C ~/.pi status --short                        # only config you meant to change
 ```
 

@@ -5,13 +5,6 @@
   "modelThinkingLevels": {
     "<provider>/<model-id>": "high"
   },
-  "mem0": {
-    "llm": "<memory-extraction-model>",
-    "embedder": "<embedding-model>",
-    "provider": "<provider, optional>",
-    "embedderProvider": "<optional, e.g. lmstudio for a local server>",
-    "embedderUrl": "<optional, e.g. http://127.0.0.1:8090/v1>"
-  },
   "micro": {
     "model": "<provider>/<cheap-model>",
     "fallbacks": [

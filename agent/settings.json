@@ -15,7 +15,6 @@
     "npm:pi-simplify",
     "npm:pi-web-access",
     "npm:pi-x-search",
-    "npm:@amaster.ai/pi-memory-mem0",
     "npm:@joemccann/pi-pdf"
   ],
   "compaction": {
@@ -26,31 +25,7 @@
   "markdown": {
     "mermaid": "final"
   },
-  "pi-memory-mem0": {
-    "mode": "embedded",
-    "oss": {
-      "llm": {
-        "provider": "${MEM0_PROVIDER:-litellm}",
-        "config": {
-          "model": "${MEM0_LLM_MODEL}"
-        }
-      },
-      "embedder": {
-        "provider": "${MEM0_EMBED_PROVIDER:-litellm}",
-        "config": {
-          "model": "${MEM0_EMBED_MODEL}",
-          "baseURL": "${MEM0_EMBED_URL}"
-        }
-      },
-      "customInstructions": "Extract only durable, reusable facts about the user and their environment. Each fact: under 25 words, atomic (one fact per entry), present tense. Include: tooling/workflow preferences, machine/environment setup, project layout, stable corrections. Exclude: quotes or summaries of previous answers, transient debugging state, one-off task details, file contents, and anything not confirmed by the user. Unrelated chatter must yield an empty facts list."
-    },
-    "topK": 3,
-    "recallFrequency": "session",
-    "autoCapture": false
-  },
   "statusline": {
-    "hide": [
-      "mem0"
-    ]
+    "hide": []
   }
 }
