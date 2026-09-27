@@ -1,0 +1,104 @@
+diff --git a/src/memory_bench/dataset/locomo.py b/src/memory_bench/dataset/locomo.py
+index aca07b5..8535a56 100644
+--- a/src/memory_bench/dataset/locomo.py
++++ b/src/memory_bench/dataset/locomo.py
+@@ -177,7 +177,7 @@ Gold answer: A shell necklace
+ The generated answer might be much longer, but you should be generous with your grading - as long as it touches on the same topic as the gold answer, it should be counted as CORRECT.
+ 
+ For time related questions, the gold answer will be a specific date, month, year, etc. The generated answer might be much longer or use relative time references (like "last Tuesday" or "next month"), but you should be generous with your grading - as long as it refers to the same date or time period as the gold answer, it should be counted as CORRECT. Even if the format differs (e.g., "May 7th" vs "7 May"), consider it CORRECT if it's the same date.
+-There's an edge case where the actual answer can't be found in the data and in that case the gold answer will say so (e.g. 'You did not mention this information.'); if the generated answer says that it cannot be answered or it doesn't know all the details, it should be counted as CORRECT.
++Every question here has a real gold answer (unanswerable questions are excluded), so a generated answer that says the information is missing or cannot be determined is WRONG.
+ 
+ Question: {query}
+ Gold answer: {gold_str}
+diff --git a/src/memory_bench/llm/openai.py b/src/memory_bench/llm/openai.py
+index 44d14b4..c79b475 100644
+--- a/src/memory_bench/llm/openai.py
++++ b/src/memory_bench/llm/openai.py
+@@ -30,6 +30,8 @@ class OpenAILLM(LLM):
+         for attempt in range(_MAX_RETRIES):
+             try:
+                 response = self._client.chat.completions.create(
++                    # Local servers: e.g. OPENAI_EXTRA_BODY='{"chat_template_kwargs":{"enable_thinking":false}}'
++                    extra_body=json.loads(os.environ["OPENAI_EXTRA_BODY"]) if os.environ.get("OPENAI_EXTRA_BODY") else None,
+                     model=self._model,
+                     messages=[{"role": "user", "content": prompt}],
+                     response_format={
+@@ -38,7 +40,15 @@ class OpenAILLM(LLM):
+                     },
+                 )
+                 text = response.choices[0].message.content
+-                return json.loads(text)
++                try:
++                    return json.loads(text)
++                except (TypeError, ValueError):
++                    # Local-server runs: a runaway or truncated generation scores as a
++                    # failed answer / failed judgement instead of crashing the whole run.
++                    if not os.environ.get("OPENAI_EXTRA_BODY"):
++                        raise
++                    return {k: (False if v.get("type") == "boolean" else "(unparseable model output)")
++                            for k, v in schema.properties.items()}
+             except Exception as e:
+                 last_exc = e
+                 msg = str(e)
+diff --git a/src/memory_bench/memory/__init__.py b/src/memory_bench/memory/__init__.py
+index 2b7e5e0..46b6739 100644
+--- a/src/memory_bench/memory/__init__.py
++++ b/src/memory_bench/memory/__init__.py
+@@ -1,19 +1,36 @@
+ from .base import MemoryProvider
+-from .bm25 import BM25MemoryProvider
+-from .cognee import CogneeMemoryProvider
+-from .hindsight import HindsightCloudMemoryProvider, HindsightHTTPMemoryProvider, HindsightMemoryProvider
+-from .mastra import MastraMemoryProvider
+-from .mastra_om import MastraOMMemoryProvider
+-from .mem0 import Mem0MemoryProvider
+-from .mem0_cloud import Mem0CloudMemoryProvider
+-from .hybrid_search import HybridSearchMemoryProvider
+-from .ogham import OghamMemoryProvider
+-from .supermemory import SupermemoryMemoryProvider
+-from .none import NoMemoryProvider
+-from .hscoding import HsCodingProvider
++import importlib as _il
++
++def _opt(mod, cls):
++    try:
++        return getattr(_il.import_module(f'.{mod}', __name__), cls)
++    except Exception:  # heavy optional deps not installed in this env
++        return None
++
++BM25MemoryProvider = _opt('bm25', 'BM25MemoryProvider')
++CogneeMemoryProvider = _opt('cognee', 'CogneeMemoryProvider')
++HindsightCloudMemoryProvider = _opt('hindsight', 'HindsightCloudMemoryProvider')
++HindsightHTTPMemoryProvider = _opt('hindsight', 'HindsightHTTPMemoryProvider')
++HindsightMemoryProvider = _opt('hindsight', 'HindsightMemoryProvider')
++MastraMemoryProvider = _opt('mastra', 'MastraMemoryProvider')
++MastraOMMemoryProvider = _opt('mastra_om', 'MastraOMMemoryProvider')
++Mem0MemoryProvider = _opt('mem0', 'Mem0MemoryProvider')
++Mem0CloudMemoryProvider = _opt('mem0_cloud', 'Mem0CloudMemoryProvider')
++HybridSearchMemoryProvider = _opt('hybrid_search', 'HybridSearchMemoryProvider')
++OghamMemoryProvider = _opt('ogham', 'OghamMemoryProvider')
++SupermemoryMemoryProvider = _opt('supermemory', 'SupermemoryMemoryProvider')
++NoMemoryProvider = _opt('none', 'NoMemoryProvider')
++HsCodingProvider = _opt('hscoding', 'HsCodingProvider')
++Mem0LocalMemoryProvider = _opt('mem0_local', 'Mem0LocalMemoryProvider')
++from .book import BookMemoryProvider, BookKeywordMemoryProvider, BookExtractMemoryProvider, BookTieredMemoryProvider
+ 
+ REGISTRY: dict[str, type[MemoryProvider]] = {
+     "vanilla": NoMemoryProvider,
++    "book": BookMemoryProvider,
++    "book-kw": BookKeywordMemoryProvider,
++    "book-extract": BookExtractMemoryProvider,
++    "book-tiered": BookTieredMemoryProvider,
++    "mem0-local": Mem0LocalMemoryProvider,
+     "hindsight-coding": HsCodingProvider,
+     "bm25": BM25MemoryProvider,
+     "cognee": CogneeMemoryProvider,
+@@ -32,6 +49,7 @@ REGISTRY: dict[str, type[MemoryProvider]] = {
+ # legacy aliases (docs/scripts used these); canonical names above
+ REGISTRY["none"] = NoMemoryProvider
+ REGISTRY["hscoding"] = HsCodingProvider
++REGISTRY = {k: v for k, v in REGISTRY.items() if v is not None}
+ 
+ 
+ def get_memory_provider(name: str) -> MemoryProvider:

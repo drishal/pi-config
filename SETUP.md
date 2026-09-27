@@ -1,7 +1,8 @@
 # pi agent setup
 
 Runbook for recreating the pi coding-agent configuration on a machine.
-Follow it top to bottom.
+Follow it top to bottom. What each feature does and how it works is documented
+in [docs/](docs/README.md).
 
 > **Fast path.** `~/.pi` **is** this repo: the config is tracked in place,
 > so editing a file under `~/.pi/agent/` edits the repo, and `git status` in
@@ -507,6 +508,9 @@ this session, so the npm extensions and MCP servers are **not yet loaded** —
 continue from step 8.
 
 ## 8. Memory (memory book)
+
+Full reference: [docs/memory.md](docs/memory.md); measurements:
+[docs/memory-benchmarks.md](docs/memory-benchmarks.md).
 
 Long-term memory is `extensions/memory-book/`: a small book of Markdown notes
 you can read and fix by hand, in `~/.pi/agent/book/`. The book is private — no
