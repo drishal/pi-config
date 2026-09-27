@@ -15,7 +15,6 @@
     "npm:pi-simplify",
     "npm:pi-web-access",
     "npm:pi-x-search",
-    "npm:pi-zentui@0.25.0",
     "npm:@amaster.ai/pi-memory-mem0",
     "npm:@joemccann/pi-pdf"
   ],
@@ -48,5 +47,10 @@
     "topK": 3,
     "recallFrequency": "session",
     "autoCapture": false
+  },
+  "statusline": {
+    "hide": [
+      "mem0"
+    ]
   }
 }

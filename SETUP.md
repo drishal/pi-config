@@ -10,10 +10,10 @@ Follow it top to bottom.
 > ```bash
 > git clone <this repo> ~/.pi     # a fresh machine (before first running pi)
 > ~/.pi/setup.sh --check          # report what is missing, change nothing
-> ~/.pi/setup.sh                  # git safeguards, packages, mem0 deps, re-patch
+> ~/.pi/setup.sh                  # git safeguards, packages, mem0 deps
 > ```
 >
-> That covers steps 4, 5, 6, 7 and the zentui patch. You still need steps 1–2
+> That covers steps 4, 5, 6 and 7. You still need steps 1–2
 > (install pi, set up models) and the machine-specific items in step 9.
 >
 > **What keeps private state out.** The same directory is pi's live state —
@@ -126,8 +126,7 @@ pi creates most of this on first run. What matters:
 | `extensions/`                          | Local TypeScript extensions                | Yes, except the machine-local ones (step 7) |
 | `skills/`                              | User-global skills (`SKILL.md` per dir)    | **No** (personal, like `mcp.json`; suggestions in step 7b) |
 | `themes/`                              | base16/base24 YAML (→ JSON via `base16-theme.ts`) or pi theme JSON | YAML + hand-written JSON only |
-| `patches/`                             | Local patches into `node_modules` + applier | Yes (step 6b) |
-| `zentui.json`, `pi-fff.json`, `subagents.json` | Per-extension config              | Yes           |
+| `pi-fff.json`, `subagents.json`        | Per-extension config                       | Yes           |
 | `AGENTS.md`                            | Global system prompt + MCP routing rules   | Yes           |
 | `mcp-cache.json`, `mcp-npx-cache.json` | Auto-generated MCP tool caches             | No (auto)     |
 | `sessions/`, `memories/`, `stream/`, `trust.json` | Runtime state                   | No (auto)     |
@@ -167,8 +166,7 @@ written by pi on `/model` — leave them out of what you add.
     "npm:pi-mono-review",
     "npm:pi-simplify",
     "npm:pi-web-access",
-    "npm:pi-x-search",
-    "npm:pi-zentui@0.25.0"
+    "npm:pi-x-search"
   ],
   "defaultThinkingLevel": "max",
   "compaction": {
@@ -193,8 +191,6 @@ written by pi on `/model` — leave them out of what you add.
 > Local extensions are the exception: `~/.pi/agent/extensions/` (and
 > `skills/`, `themes/`, `prompts/`) are auto-discovered and load without
 > appearing here.
->
-> `pi-zentui` is pinned to an exact version on purpose — see step 6b.
 
 ### Custom theme
 
@@ -332,7 +328,7 @@ installs missing entries into `~/.pi/agent/npm/` and updates
 `~/.pi/agent/npm/package.json`. To install/update explicitly:
 
 ```bash
-pi install npm:pi-zentui          # one package
+pi install npm:pi-lens            # one package
 pi update --extensions             # update all installed extensions
 ```
 
@@ -371,11 +367,6 @@ What they are:
 - `pi-x-search` — searches X with verbatim post quotes and resolved URLs.
   Needs xAI auth (`/login` → xAI, or `XAI_API_KEY`). Note it **searches**;
   it cannot fetch a specific X URL — use obscura for that.
-- `pi-zentui@0.25.0` — TUI + statusline. **Pinned to an exact version on
-  purpose:** pi skips exact npm specs during `pi update`, which is what keeps
-  the local patch in step 6b from being silently reverted. Keep the pin in
-  both `settings.json` and `npm/package.json` — a caret range in either
-  defeats it.
 - `@amaster.ai/pi-memory-mem0` — cross-session memory, per project. Needs a
   per-machine config block and two extra npm modules; see step 8.
 - `@joemccann/pi-pdf` — 12 PDF tools (text/table extraction, `pdf_to_images`,
@@ -386,30 +377,41 @@ What they are:
   site-packages (PEP 668), so this machine uses a uv venv at
   `~/.venvs/pi-pdf` and a `~/.local/bin/python3` shim that execs it — which
   makes that venv every shell's `python3`, not just pi's.
-### 6b. Local patches (`patches/`) — the silent step
+### 6b. Footer (`extensions/statusline.ts`)
 
-`patches/` holds a patch applied **inside `node_modules/pi-zentui/`**, making
-the footer show real token counts (`6.6k/131k`) instead of percentages.
+The footer is this repo's own two-line status line, not a package:
 
-`node_modules/` is deliberately untracked, so a fresh `npm ci` produces
-*unpatched* zentui **with no error at all** — you just quietly get the wrong
-footer. This is the one step that fails silently, which is why `setup.sh`
-runs it automatically.
-
-```bash
-cd ~/.pi/agent/npm && npm ci         # restores extensions from the lockfile
-~/.pi/agent/patches/apply-zentui-patch.sh          # apply (idempotent)
-~/.pi/agent/patches/apply-zentui-patch.sh --check  # status only
+```
+deepseek-v4.1-flash · OpenCode Go · max · my-session          watchdog:on · LSP …
+.pi on  main [!?] via ❄ impure            22k/1.0M · ↑44k ↓98 · cache 50% · $0.003 · 22 tok/s
 ```
 
-If `npm ci` refuses with `EUSAGE` (`package.json` and `package-lock.json` out
-of sync), run `npm install` once to resync the lockfile, then `npm ci` works
-again. Commit the updated lockfile.
+Line 1 is the model, provider, thinking level and session name, with the other
+extensions' statuses on the right. Line 2 is the real `starship prompt` for the
+working directory (directory, git, language versions, nix-shell — whatever your
+starship config renders), then context as real token counts, tokens in/out,
+prompt-cache hit rate, cost, and the last reply's output tokens/s. Context turns
+warning/error at a percentage *or* a token count, whichever comes first — on a
+1M-token window a percentage alone would stay quiet until 700k.
 
-After bumping zentui deliberately: `pi install npm:pi-zentui@<new>` replaces
-the package and un-patches it, so re-run the applier. If it reports
-`CONFLICT`, upstream changed one of the patched files — regenerate the patch
-per `patches/README.md`.
+starship never runs while drawing: it refreshes in the background after each
+prompt and run, and the footer shows the last result. Without starship on
+`PATH` the left side falls back to the directory name and git branch. Narrow
+terminals drop whole segments (tok/s, cache, cost, tokens) and truncate
+starship's text last. Settings, all optional, in `settings.json`:
+
+```json
+"statusline": {
+  "hide": ["mem0"],
+  "contextThresholds": { "warning": [70, 150000], "error": [90, 500000] },
+  "separator": " · ",
+  "starship": true
+}
+```
+
+`/statusline` toggles it for a session (pi's built-in footer comes back). It
+replaced `pi-zentui`, whose footer needed a local patch inside `node_modules`
+to show real token counts, pinned to one version so updates would not undo it.
 
 ## 7. Skills + local extension
 
@@ -452,6 +454,7 @@ machine only would be listed by name in `.gitignore` instead):
 | `00-env.ts` | Loads `pi.env` (shared) and `.env` (this machine) into the environment before every other extension; `/env` shows names and sources. See step 4b. |
 | `mem0-recall.ts` | Draws mem0's recall message as one `● Recalled N memories` line (Ctrl+O expands) instead of a full tinted block. `MEM0_RECALL=hide`/`full` in its header. |
 | `herdr-agent-state.ts` | Publishes agent state for desktop integrations. |
+| `statusline.ts` | The two-line footer: model / provider / thinking and extension statuses, then the real `starship prompt` plus context, tokens, cache hit rate, cost and tok/s. See step 6b. |
 | `local-llama-autodetect.ts` | Finds a running llama.cpp `llama-server` (`$LOCAL_LLAMA_URL`, else `models.json`'s `local-model` baseUrl, else `localhost:8081`/`8080`) and registers it as the `local-model` provider with the server's real context window, thinking levels and vision support. `/local-model` re-detects after you restart the server with another model. Fails fast and registers nothing when no server answers. |
 | `skill-manage.ts` | A port of Hermes' skill machinery: the `skill_manage` tool (create / patch / delete skills and their files), `/learn <topic>` to author a skill from sources, `/skill-review` to codify what a conversation taught, `/skills-show`. Writes to `~/.pi/agent/skills/`, which is never tracked — your skills stay yours. |
 | `tmux-stream.ts` | For `pi -p` (no TUI): mirrors reasoning and tool calls live into a tmux session (`tmux attach -r -t pi-stream`) and logs them to `~/.pi/agent/stream/` (never tracked — logs hold session content). `PI_TMUX_STREAM=0/1` forces it off/on. |
@@ -624,9 +627,9 @@ peers — hundreds of extra modules.) npm downloads a prebuilt `better-sqlite3`
 binary for common platforms; otherwise it compiles, which needs `python3`,
 `make` and a C++ compiler.
 
-**Check:** run `/mem0 status`. (Its footer entry is turned off in
-`zentui.json` under `extensionStatuses.placements`; set `"mem0"` to `"right"`
-to show it again.)
+**Check:** run `/mem0 status`. (Its status is hidden from the footer by
+`"statusline": { "hide": ["mem0"] }` in `settings.json`; drop `"mem0"` there to
+show it again.)
 
 Memories are separate from Hermes's Mnemosyne store by design — each agent
 keeps its own.
@@ -665,10 +668,9 @@ Also confirm the two things that fail quietly:
 
 ```bash
 ~/.pi/setup.sh --check                             # packages, mem0 deps, git safeguards
-~/.pi/agent/patches/apply-zentui-patch.sh --check  # expect "already applied"
 git -C ~/.pi status --short                        # only config you meant to change
 ```
 
-In pi, `/todo` should respond (from `@gamaraan/todos-tool`) and the footer
-should read real token counts like `6.6k/131k` — percentages there mean the
-zentui patch did not apply.
+In pi, `/todo` should respond (from `@gamaraan/todos-tool`), and the footer's
+second line should show your starship prompt and a real token count like
+`22k/1.0M` (step 6b).

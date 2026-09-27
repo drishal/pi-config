@@ -21,10 +21,8 @@
 !/agent/pi.env
 !/agent/pi-fff.json
 !/agent/subagents.json
-!/agent/zentui.json
 !/agent/model-state_example.json
 !/agent/extensions/
-!/agent/patches/
 !/agent/themes/
 # skills/ is deliberately NOT listed: skills are personal, like mcp.json —
 # SETUP.md step 7b suggests sources instead of shipping any.

@@ -629,7 +629,11 @@ function installCard(): Patchable | undefined {
 		const theme = state.theme;
 		if (!theme || width < 12) return original.call(this, width);
 
-		const inner = Math.max(1, width - 4);
+		// pi's own box runs border to border: it paints userMessageBg over its
+		// whole width and keeps a column of padding inside that fill, so the
+		// text still has its margin. (An extra plain space on each side left an
+		// unpainted strip between the border and the fill.)
+		const inner = Math.max(1, width - 2);
 		const body = original.call(this, inner);
 		if (body.length === 0) return body;
 
@@ -642,7 +646,7 @@ function installCard(): Patchable | undefined {
 
 		const middle = body.map((line) => {
 			const pad = Math.max(0, inner - visibleWidth(line));
-			return `${g("│")} ${line}${" ".repeat(pad)} ${g("│")}`;
+			return `${g("│")}${line}${theme.bg("userMessageBg", " ".repeat(pad))}${g("│")}`;
 		});
 		return [top, ...middle, bottom];
 	} as RenderFn;

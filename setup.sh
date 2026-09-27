@@ -8,7 +8,7 @@
 #
 # Packages are not pinned by a lockfile: settings.json `packages[]` is the source
 # of truth and step 3 runs `pi install` for each entry (pin a version in the
-# entry, e.g. npm:pi-zentui@0.25.0, when something depends on it). pi's own
+# entry, e.g. npm:<package>@1.2.3, when something depends on it). pi's own
 # lockfile under agent/npm (written with --legacy-peer-deps) stays machine-local.
 set -uo pipefail
 
@@ -122,22 +122,7 @@ if [ -f "$MEM0" ]; then
 	done
 fi
 
-# --- 4. the silent one ----------------------------------------------------
-# The zentui patch lives INSIDE node_modules, which is untracked. A fresh
-# install yields unpatched zentui with no error — percentages instead of real
-# token counts in the footer.
-say "patches:"
-if [ -x "$PI/patches/apply-zentui-patch.sh" ]; then
-	if [ $CHECK -eq 1 ]; then
-		"$PI/patches/apply-zentui-patch.sh" --check | sed 's/^/  /'
-	else
-		"$PI/patches/apply-zentui-patch.sh" | sed 's/^/  /'
-	fi
-else
-	say "  patches/apply-zentui-patch.sh missing"
-fi
-
-# --- 5. what this script cannot do ----------------------------------------
+# --- 4. what this script cannot do ----------------------------------------
 cat <<EOF
 
 Private, per machine — never tracked (see SETUP.md):

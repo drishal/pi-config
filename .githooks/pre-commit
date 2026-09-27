@@ -7,7 +7,7 @@ set -uo pipefail
 fail=0
 
 # 1. Every staged path must be one the allowlist tracks (keep in sync with .gitignore).
-allowed='^(\.gitignore|\.gitattributes|\.githooks/.*|README\.md|SETUP\.md|setup\.sh|docs/.*|agent/(AGENTS\.md|settings\.json|pi\.env|pi-fff\.json|subagents\.json|zentui\.json|model-state_example\.json|extensions/.*|patches/.*|themes/.*))$'
+allowed='^(\.gitignore|\.gitattributes|\.githooks/.*|README\.md|SETUP\.md|setup\.sh|docs/.*|agent/(AGENTS\.md|settings\.json|pi\.env|pi-fff\.json|subagents\.json|model-state_example\.json|extensions/.*|themes/.*))$'
 never='(^|/)(auth\.json|models\.json|models-store\.json|mcp\.json|model-state\.json|\.env|trust\.json)$|(^|/)(sessions|memories|npm|stream|fff|subagents|secrets|tasks|skills)/'
 while IFS= read -r -d '' path; do
 	if [[ ! $path =~ $allowed ]] || [[ $path =~ $never ]]; then
