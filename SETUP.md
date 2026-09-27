@@ -18,7 +18,7 @@ in [docs/](docs/README.md).
 > (install pi, set up models) and the machine-specific items in step 9.
 >
 > **What keeps private state out.** The same directory is pi's live state —
-> sessions, memories, `auth.json`, `models.json`, `mcp.json`, caches, npm.
+> sessions, memories, `auth.json`, `models.json`, `mcp-adapter.json`, caches, npm.
 > Three layers keep it out of git: `.gitignore` is an **allowlist** (everything
 > is ignored unless listed, so new files pi creates stay private by default);
 > a clean filter strips pi's runtime keys (`defaultProvider`, `defaultModel`,
@@ -120,13 +120,13 @@ pi creates most of this on first run. What matters:
 | `models.json`                          | Providers + API keys                       | **No** (you)  |
 | `auth.json`, `models-store.json`       | OAuth tokens from `/login`                 | **No** (pi)   |
 | `settings.json`                        | Global settings, extensions, theme         | Yes (step 4; runtime keys filtered) |
-| `mcp.json`                             | MCP server definitions                     | **No** (yours; suggestions in step 5) |
+| `mcp-adapter.json`                     | MCP server definitions (pi-mcp-adapter)    | **No** (yours; suggestions in step 5) |
 | `model-state.json`, `.env`             | Model pick, memory/micro models; per-machine env and secrets | **No** (per machine) |
 | `book/`                                | The memory book: your private notes (step 8) | **No** (private; never synced) |
 | `pi.env`                               | Shared env switches                        | Yes (step 4b) |
 | `npm/`                                 | pi's package install tree                  | **No** (rebuilt by `setup.sh`) |
 | `extensions/`                          | Local TypeScript extensions                | Yes, except the machine-local ones (step 7) |
-| `skills/`                              | User-global skills (`SKILL.md` per dir)    | **No** (personal, like `mcp.json`; suggestions in step 7b) |
+| `skills/`                              | User-global skills (`SKILL.md` per dir)    | **No** (personal, like `mcp-adapter.json`; suggestions in step 7b) |
 | `themes/`                              | base16/base24 YAML (→ JSON via `base16-theme.ts`) or pi theme JSON | YAML + hand-written JSON only |
 | `pi-fff.json`, `subagents.json`        | Per-extension config                       | Yes           |
 | `AGENTS.md`                            | Global system prompt + MCP routing rules   | Yes           |
@@ -246,14 +246,16 @@ inherited) are reloaded from the files rather than treated as your overrides.
 `/env` lists what was loaded from where — names only, never values. This
 replaces setting these in a shell profile, so non-Nix machines get them too.
 
-## 5. MCP servers (`mcp.json`) — *suggestions, not a manifest*
+## 5. MCP servers (`mcp-adapter.json`) — *suggestions, not a manifest*
 
-> **`mcp.json` is deliberately not tracked in this repo** (`.gitignore`:
-> `agent/mcp.json`). Server entries routinely carry inline credentials — an
+> **`mcp-adapter.json` is deliberately not tracked in this repo** (it is off
+> the `.gitignore` allowlist and on the pre-commit never-list). Server entries routinely carry inline credentials — an
 > API token in `env`, a bearer in a URL — and which servers you want is a
 > per-machine choice. What follows is a menu to pick from, not a file to copy.
 
-Write `~/.pi/agent/mcp.json` yourself. STDIO servers use `command` + `args`
+Write `~/.pi/agent/mcp-adapter.json` yourself. (pi-mcp-adapter 3.0 stopped
+reading `mcp.json`, which now belongs to pi's upcoming built-in MCP support; the
+format is unchanged, so an old `mcp.json` only needs renaming.) STDIO servers use `command` + `args`
 (+ optional `env`); HTTP servers use `url`. `lifecycle: "lazy"` spawns on first
 use (good for stateless clients); `"keep-alive"` keeps the process alive (for
 stateful daemons). The server list loads at session start — new entries need a
@@ -275,7 +277,7 @@ Web search is **not** on this list: `pi-web-access` (step 6) provides
 An MCP search server such as `argus` is redundant alongside it.
 
 > **Credentials belong in `env`, not inline where you can help it.** A token
-> written straight into `mcp.json` is why the file is untracked. Prefer
+> written straight into `mcp-adapter.json` is why the file is untracked. Prefer
 > `"API_TOKEN": "${API_TOKEN}"` env entries exported from your shell, or
 > keep the credential in the server's own config file.
 
@@ -348,7 +350,8 @@ What they are:
 - `pi-lens` — real-time code feedback: LSP, linters, formatters,
   type-checking, structural analysis. Also ships four `pi-lens-*` skills.
   This is the closest thing here to an IDE wired into the agent.
-- `pi-mcp-adapter` — MCP integration (config merging, oauth, `/mcp` panel).
+- `pi-mcp-adapter` — MCP integration (config merging, oauth, `/mcp-adapter` panel;
+  `/mcp` still works as a shortcut).
   Everything in step 5 depends on it; remove it and all six servers go dark.
 - `pi-mono-ask-user-question` — structured multiple-choice questions instead
   of the model guessing.
@@ -418,7 +421,7 @@ Skills are `SKILL.md` files. pi loads them from (in order) `.pi/skills/`,
 `.agents/skills/` (project, walking up parents), then `~/.pi/agent/skills/`
 and `~/.agents/skills/` (user-global).
 
-**Skills are personal — this repo ships none.** Like `mcp.json`, `skills/` is
+**Skills are personal — this repo ships none.** Like `mcp-adapter.json`, `skills/` is
 off the allowlist: every listed skill costs prompt tokens in every session, a
 skill that does not fit your work is a routing mistake waiting to happen, and
 the best skills are the ones written from your own sessions (`/learn`,
@@ -502,9 +505,9 @@ referenced sibling files) into the target dir — pi reads the file directly.
 ### ⚠️ Restart pi before steps 8–10
 
 Extensions (step 6 + 7) and MCP servers (step 5) load at pi **startup**,
-not mid-session. You've just written `settings.json` and `mcp.json` during
+not mid-session. You've just written `settings.json` and `mcp-adapter.json` during
 this session, so the npm extensions and MCP servers are **not yet loaded** —
-`/mcp` will show nothing until you restart. Exit pi and relaunch it, then
+`/mcp-adapter` will show nothing until you restart. Exit pi and relaunch it, then
 continue from step 8.
 
 ## 8. Memory (memory book)
@@ -609,7 +612,7 @@ These are **not in this repo** — supply them before first run:
 - [ ] `~/.pi/agent/auth.json` — created automatically by `/login`.
 - [ ] `web-search.json` — optional. Only needed for a private SearXNG
       backend; `pi-web-access` works keyless otherwise (see Prerequisites).
-- [ ] `~/.pi/agent/mcp.json` — yours to write; suggestions in step 5.
+- [ ] `~/.pi/agent/mcp-adapter.json` — yours to write; suggestions in step 5.
 - [ ] `obscura` binary on `PATH`; `uvx` on `PATH`.
 
 ## 10. Verify
@@ -617,7 +620,7 @@ These are **not in this repo** — supply them before first run:
 ```bash
 pi                       # launches; no config errors
 # inside pi:
-/mcp                     # lists every server you configured, each "connected"
+/mcp-adapter             # lists every server you configured, each "connected"
 # tools from whichever servers you configured should appear
 /memory                  # memory book status (step 8)
 ```

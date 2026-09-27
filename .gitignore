@@ -24,7 +24,7 @@
 !/agent/model-state_example.json
 !/agent/extensions/
 !/agent/themes/
-# skills/ is deliberately NOT listed: skills are personal, like mcp.json —
+# skills/ is deliberately NOT listed: skills are personal, like mcp-adapter.json —
 # SETUP.md step 7b suggests sources instead of shipping any.
 
 # Inside the allowed directories: machine-local and generated files.

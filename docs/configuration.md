@@ -17,7 +17,7 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | `.env` | per-machine env and secrets | **no** |
 | `auth.json`, `models-store.json` | OAuth tokens | **no** |
 | `models.json` | providers and API keys | **no** |
-| `mcp.json` | MCP servers, often with credentials | **no** — suggestions in SETUP.md step 5 |
+| `mcp-adapter.json` | MCP servers for pi-mcp-adapter, often with credentials | **no** — suggestions in SETUP.md step 5 |
 | `skills/` | your skills | **no** — personal |
 | `book/` | the memory book | **no** — private notes |
 | `sessions/`, `stream/`, `npm/`, caches | runtime state | **no** |

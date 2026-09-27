@@ -102,7 +102,7 @@ function run(args: string[], cwd: string): Promise<string> {
  * on the styled text; the colour codes wrap the whole string, so the words are
  * contiguous. pi-mcp-adapter: "MCP: 7 servers enabled (1 connected) (2 disabled)"
  * → "MCP: 1/7 active, 2 off" (its own "mcpFooterStatus": "compact" setting lives
- * in the per-machine mcp.json, and drops the words).
+ * in the per-machine mcp-adapter.json, and drops the words).
  */
 function compactStatus(key: string, text: string): string {
 	if (key === "mcp") {

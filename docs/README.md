@@ -28,7 +28,7 @@ machine are in [../SETUP.md](../SETUP.md).
       memory-book/                  memory (memory.md)
     themes/                         base16 YAML → pi themes
     — private, never tracked —
-    model-state.json, .env, auth.json, models.json, mcp.json
+    model-state.json, .env, auth.json, models.json, mcp-adapter.json
     book/                           the memory book
     sessions/, skills/, npm/, stream/
 ```

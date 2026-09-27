@@ -21,7 +21,7 @@ The second line of defence — `git add -f` bypasses ignore rules, and a new
 extension can carry a pasted key. It refuses a commit when:
 
 - a staged path is not on the allowlist, or is private state (`auth.json`,
-  `models.json`, `mcp.json`, `model-state.json`, `.env`, `sessions/`, `book/`,
+  `models.json`, `mcp.json`, `mcp-adapter.json`, `model-state.json`, `.env`, `sessions/`, `book/`,
   `memories/`, `npm/`, `stream/`, `skills/`, …)
 - staged content looks like a secret (OpenAI/xAI/GitHub/AWS/Google keys,
   private keys, bearer tokens, OAuth token fields)
@@ -50,7 +50,7 @@ Per clone, idempotent (`--check` reports without changing anything):
    `packages[]` entry — no lockfile; pin a version in the entry when needed
 4. memory: reports whether the embedding endpoint answers (memory-book needs
    no packages; without embeddings search is keyword-only)
-5. prints what it cannot do: `models.json`, `auth.json`, `mcp.json`, `.env`,
+5. prints what it cannot do: `models.json`, `auth.json`, `mcp-adapter.json`, `.env`,
    skills, `model-state.json` — the per-machine and personal files
 
 ## Commits
