@@ -128,7 +128,7 @@ pi creates most of this on first run. What matters:
 | `extensions/`                          | Local TypeScript extensions                | Yes, except the machine-local ones (step 7) |
 | `skills/`                              | User-global skills (`SKILL.md` per dir)    | **No** (personal, like `mcp-adapter.json`; suggestions in step 7b) |
 | `themes/`                              | base16/base24 YAML (→ JSON via `base16-theme.ts`) or pi theme JSON | YAML + hand-written JSON only |
-| `pi-fff.json`, `subagents.json`        | Per-extension config                       | Yes           |
+| `subagents.json`                       | Per-extension config                       | Yes           |
 | `AGENTS.md`                            | Global system prompt + MCP routing rules   | Yes           |
 | `mcp-cache.json`, `mcp-npx-cache.json` | Auto-generated MCP tool caches             | No (auto)     |
 | `sessions/`, `memories/`, `stream/`, `trust.json` | Runtime state                   | No (auto)     |
@@ -154,7 +154,6 @@ written by pi on `/model` — leave them out of what you add.
 {
   "theme": "gruvbox-material",
   "packages": [
-    "npm:@ff-labs/pi-fff",
     "npm:@gamaraan/todos-tool",
     "npm:@narumitw/pi-plan-mode",
     "npm:pi-background-tasks",
@@ -170,6 +169,7 @@ written by pi on `/model` — leave them out of what you add.
     "npm:pi-web-access",
     "npm:pi-x-search"
   ],
+  "defaultTools": ["read", "bash", "edit", "write", "find"],
   "defaultThinkingLevel": "max",
   "compaction": {
     "enabled": true,
@@ -182,6 +182,10 @@ written by pi on `/model` — leave them out of what you add.
 
 - `packages` is the list of extensions pi auto-installs into `~/.pi/agent/npm/`
   on startup (and via `pi install <pkg>`). See step 6.
+- `defaultTools` adds pi's built-in `find` (fd, respects `.gitignore`) to the
+  default four. With it, search needs no package: `find` for file names and
+  pi-hashline-edit-pro's `anchor_grep` (ripgrep) for contents. hashline still
+  replaces `read` and the edit tools, and sudo-session wraps `bash`.
 
 > **`packages` is the only thing that loads an npm extension.** pi's
 > `resolve()` iterates this array and nothing else — it never scans
@@ -337,7 +341,6 @@ pi update --extensions             # update all installed extensions
 
 What they are:
 
-- `@ff-labs/pi-fff` — fuzzy file + content search, frecency-ranked.
 - `@gamaraan/todos-tool` — phased todo tool with reminders and a HUD
   (an Oh-My-Pi-style `todo`; pi ships no todo tool of its own).
 - `@narumitw/pi-plan-mode` — Codex-like read-only `/plan` collaboration mode.

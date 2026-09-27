@@ -19,7 +19,6 @@
 !/agent/AGENTS.md
 !/agent/settings.json
 !/agent/pi.env
-!/agent/pi-fff.json
 !/agent/subagents.json
 !/agent/model-state_example.json
 !/agent/extensions/

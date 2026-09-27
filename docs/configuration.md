@@ -11,7 +11,7 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | `pi.env` | shared non-secret env switches | yes |
 | `AGENTS.md` | the global system prompt: style, tool routing | yes |
 | `extensions/`, `themes/` (YAML + hand-written JSON) | local extensions, themes | yes |
-| `pi-fff.json`, `subagents.json` | per-extension config | yes |
+| `subagents.json` | per-extension config | yes |
 | `model-state_example.json` | the shape of `model-state.json` | yes |
 | `model-state.json` | model pick, `micro` chain, `memory` settings | **no** — per machine |
 | `.env` | per-machine env and secrets | **no** |

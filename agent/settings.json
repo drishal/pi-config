@@ -2,7 +2,6 @@
   "theme": "gruvbox-material",
   "packages": [
     "npm:@capdiem/pi-ask-user",
-    "npm:@ff-labs/pi-fff",
     "npm:@gamaraan/todos-tool",
     "npm:@narumitw/pi-btw",
     "npm:@narumitw/pi-plan-mode",
@@ -16,6 +15,13 @@
     "npm:pi-web-access",
     "npm:pi-x-search",
     "npm:@joemccann/pi-pdf"
+  ],
+  "defaultTools": [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "find"
   ],
   "compaction": {
     "enabled": true,
