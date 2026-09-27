@@ -5,7 +5,7 @@
   embedder  EmbeddingGemma on llama-embed (MEM0_EMBED_URL), 768 dims
   store     embedded Qdrant under the run's store dir
   input     one message per turn, "Speaker: text", after a "Session date: YYYY-MM-DD"
-            line — the same lines and date book.py gives memory-book
+            line — the same lines and date book.py gives pi-book
   k         AMB's mem0 default: 20 memories
 """
 import os

@@ -1,5 +1,5 @@
 /**
- * memory-book outside pi: inspect the book, and serve the benchmark adapter.
+ * pi-book outside pi: inspect the book, and serve the benchmark adapter.
  *
  *   node cli.ts status
  *   node cli.ts search <query> [--project <id>] [--k <n>]

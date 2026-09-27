@@ -62,7 +62,7 @@ model tried.
 
 ## Outside pi
 
-memory-book's `llm.ts` builds the same kind of session from pi's installed SDK
+pi-book's `llm.ts` builds the same kind of session from pi's installed SDK
 when running as a CLI ("pi" mode), and the benchmark's `pi-bridge.mjs` exposes
 it as an OpenAI-compatible endpoint for tools that only speak that API — still
 real pi sessions, no header spoofing.

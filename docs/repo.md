@@ -1,7 +1,7 @@
 # How this repo works
 
 `~/.pi` **is** the repository: config is tracked in place, and everything else
-pi keeps there (sessions, tokens, keys, the memory book, caches) is private
+pi keeps there (sessions, tokens, keys, pi-book's notes, caches) is private
 state that must never be committed. Three layers keep it that way.
 
 ## 1. An allowlist `.gitignore`
@@ -48,7 +48,7 @@ Per clone, idempotent (`--check` reports without changing anything):
    `.githooks` (git never versions its own config)
 3. packages: one `pi install` per missing or mismatched `settings.json`
    `packages[]` entry — no lockfile; pin a version in the entry when needed
-4. memory: reports whether the embedding endpoint answers (memory-book needs
+4. memory: reports whether the embedding endpoint answers (pi-book needs
    no packages; without embeddings search is keyword-only)
 5. prints what it cannot do: `models.json`, `auth.json`, `mcp-adapter.json`, `.env`,
    skills, `model-state.json` — the per-machine and personal files

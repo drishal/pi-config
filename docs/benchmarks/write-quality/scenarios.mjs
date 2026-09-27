@@ -1,4 +1,4 @@
-// Write-quality scenarios for memory-book capture (coding domain).
+// Write-quality scenarios for pi-book capture (coding domain).
 // seed: notes present before the capture (dated 2026-01-10)
 // transcript: what capture sees
 // expect: each regex must match some note afterwards, in the given scope ("user" | "project")

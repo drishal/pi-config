@@ -1,6 +1,6 @@
-# Memory: the memory book
+# Memory: pi-book
 
-`agent/extensions/memory-book/` gives pi long-term memory as plain Markdown you
+`agent/extensions/pi-book/` gives pi long-term memory as plain Markdown you
 can read, grep and fix by hand. It replaced mem0 (see
 [memory-benchmarks.md](memory-benchmarks.md) for why and how they compare).
 
@@ -58,7 +58,7 @@ code, logs and long explanations are never stored — they stay in the archive.
 
 ## What happens during a session
 
-| Event | What memory-book does |
+| Event | What pi-book does |
 |---|---|
 | session start | resolves the project id and a short session id; in the background, expires old digests (one promotion pass first) |
 | first prompt | injects the recall block once (again after a compaction) |
@@ -185,7 +185,7 @@ models.
 ## CLI
 
 ```
-node ~/.pi/agent/extensions/memory-book/cli.ts status
+node ~/.pi/agent/extensions/pi-book/cli.ts status
 node …/cli.ts search <query> [--project <id>] [--k <n>]
 node …/cli.ts recall <prompt> [--project <id>] [--session <id>]
 node …/cli.ts capture [--project <id>] [--session <id>] [--date YYYY-MM-DD] < transcript

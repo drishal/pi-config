@@ -1,5 +1,5 @@
 /**
- * memory-book — long-term memory as a book of Markdown notes.
+ * pi-book — long-term memory for pi as a book of Markdown notes.
  *
  * Replaces mem0's opaque vector store with files you can read and fix by hand
  * (see book.ts for the layout, ~/.pi/agent/book by default). Notes are scoped:

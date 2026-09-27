@@ -1,6 +1,6 @@
 # Memory benchmarks
 
-How the memory book ([memory.md](memory.md)) was measured, against what, and
+How pi-book ([memory.md](memory.md)) was measured, against what, and
 what the numbers do and do not show. Harness and reproduction steps:
 [benchmarks/](benchmarks/README.md). All runs 2026-09-27.
 

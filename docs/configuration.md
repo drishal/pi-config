@@ -19,7 +19,7 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | `models.json` | providers and API keys | **no** |
 | `mcp-adapter.json` | MCP servers for pi-mcp-adapter, often with credentials | **no** — suggestions in SETUP.md step 5 |
 | `skills/` | your skills | **no** — personal |
-| `book/` | the memory book | **no** — private notes |
+| `book/` | pi-book's notes | **no** — private |
 | `sessions/`, `stream/`, `npm/`, caches | runtime state | **no** |
 
 ## model-state.json
@@ -44,7 +44,7 @@ Per machine, never synced; `model-state_example.json` shows the shape.
 |---|---|---|
 | `provider`, `model`, `thinkingLevel`, `modelThinkingLevels` | `remember-model.ts` | [extensions](extensions/README.md#remember-modelts) |
 | `micro` | `microcall.ts` | [microcall.md](extensions/microcall.md) |
-| `memory` | `memory-book/` | [memory.md](memory.md#configuration) |
+| `memory` | `pi-book/` | [memory.md](memory.md#configuration) |
 
 ## pi.env and .env
 
@@ -58,7 +58,7 @@ Env switches read by our extensions:
 | Variable | Extension | Effect |
 |---|---|---|
 | `PI_MICRO_MODEL` | microcall | override the model chain |
-| `PI_MEMORY_DIR`, `PI_MEMORY_CONFIG` | memory-book | another book / config file |
+| `PI_MEMORY_DIR`, `PI_MEMORY_CONFIG` | pi-book | another book / config file |
 | `PI_TMUX_STREAM`, `PI_TMUX_SESSION`, `PI_TMUX_MAX_RESULT` | tmux-stream | force on/off, session name, result cap |
 | `NEAT_RENDER*` | neat-render | see [extensions](extensions/README.md#neat-renderts) |
 | `EVAL_PYTHON`, `EVAL_NODE`, `EVAL_TIMEOUT` | eval | interpreters, cell timeout |

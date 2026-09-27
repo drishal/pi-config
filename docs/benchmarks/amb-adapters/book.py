@@ -1,15 +1,15 @@
-"""pi memory-book provider: drives `node cli.ts serve` over JSON lines.
+"""pi pi-book provider: drives `node cli.ts serve` over JSON lines.
 
 Variants
   book          raw sessions as Markdown sections, BM25 + EmbeddingGemma, RRF
   book-kw       the same, keyword (BM25) only — the embedding ablation
-  book-extract  each session goes through memory-book's capture model first
+  book-extract  each session goes through pi-book's capture model first
                 (the "conversation" profile); only the extracted notes are searched
   book-tiered   book-extract plus the medium tier: a journal digest per session
                 (no expiry here), searched together with the notes
 
 Env
-  BOOK_CLI        path to cli.ts (default ~/.pi/agent/extensions/memory-book/cli.ts)
+  BOOK_CLI        path to cli.ts (default ~/.pi/agent/extensions/pi-book/cli.ts)
   BOOK_LLM        JSON for memory.llm (default: raw local llama-server on :8081)
   BOOK_EMBED_URL  embeddings endpoint (default http://127.0.0.1:8090/v1)
   BOOK_K          override the k the mode asks for (token-parity runs)
@@ -27,7 +27,7 @@ from pathlib import Path
 from ..models import Document
 from .base import MemoryProvider
 
-_CLI = os.environ.get("BOOK_CLI", str(Path.home() / ".pi/agent/extensions/memory-book/cli.ts"))
+_CLI = os.environ.get("BOOK_CLI", str(Path.home() / ".pi/agent/extensions/pi-book/cli.ts"))
 _DEFAULT_LLM = {
     "mode": "raw",
     "baseUrl": "http://127.0.0.1:8081/v1",
@@ -58,7 +58,7 @@ def _lines(content: str) -> list[str]:
 
 class BookMemoryProvider(MemoryProvider):
     name = "book"
-    description = "pi memory-book: Markdown sections searched with BM25 + EmbeddingGemma (RRF)."
+    description = "pi pi-book: Markdown sections searched with BM25 + EmbeddingGemma (RRF)."
     kind = "local"
     concurrency = 1
     extract = False
@@ -90,10 +90,10 @@ class BookMemoryProvider(MemoryProvider):
             self._proc.stdin.flush()
             line = self._proc.stdout.readline()
         if not line:
-            raise RuntimeError("memory-book serve exited")
+            raise RuntimeError("pi-book serve exited")
         res = json.loads(line)
         if not res.get("ok"):
-            raise RuntimeError(f"memory-book: {res.get('error')}")
+            raise RuntimeError(f"pi-book: {res.get('error')}")
         return res
 
     def ingest(self, documents: list[Document]) -> None:
@@ -134,18 +134,18 @@ class BookMemoryProvider(MemoryProvider):
 
 class BookKeywordMemoryProvider(BookMemoryProvider):
     name = "book-kw"
-    description = "pi memory-book, BM25 only (embedding ablation)."
+    description = "pi pi-book, BM25 only (embedding ablation)."
     embed = False
 
 
 class BookExtractMemoryProvider(BookMemoryProvider):
     name = "book-extract"
-    description = "pi memory-book with LLM capture: sessions become extracted notes, then hybrid search."
+    description = "pi pi-book with LLM capture: sessions become extracted notes, then hybrid search."
     extract = True
 
 
 class BookTieredMemoryProvider(BookMemoryProvider):
     name = "book-tiered"
-    description = "pi memory-book with LLM capture into long-term notes plus a per-session journal digest."
+    description = "pi pi-book with LLM capture into long-term notes plus a per-session journal digest."
     extract = True
     tiered = True

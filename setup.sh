@@ -73,8 +73,8 @@ while IFS= read -r spec; do
 	pi install "$spec" >/dev/null 2>&1 || { say "  FAILED  pi install $spec"; exit 1; }
 done < <(jq -r '.packages[]? | if type=="string" then . else .source end' "$PI/settings.json")
 
-# --- 3b. memory (extensions/memory-book) ----------------------------------
-# Nothing to install: memory-book is plain TypeScript with no npm dependencies.
+# --- 3b. memory (extensions/pi-book) ----------------------------------
+# Nothing to install: pi-book is plain TypeScript with no npm dependencies.
 # Its embeddings come from an OpenAI-compatible endpoint (model-state.json
 # "memory.embed", default llama-embed on 127.0.0.1:8090); without one, memory
 # search still works on keywords alone.

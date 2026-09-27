@@ -7,12 +7,12 @@ from a temporary nix env, never pip.
 | File | Purpose |
 |---|---|
 | `amb-adapters/` | adapters and a patch for [AMB](https://github.com/vectorize-io/agent-memory-benchmark), at the commit in `AMB_COMMIT` |
-| `amb-adapters/book.py` | memory-book provider (`book`, `book-kw`, `book-extract`, `book-tiered`), driving `cli.ts serve` |
+| `amb-adapters/book.py` | pi-book provider (`book`, `book-kw`, `book-extract`, `book-tiered`), driving `cli.ts serve` |
 | `amb-adapters/mem0_local.py` | mem0 OSS 2.x provider fed the same input as `book.py` |
 | `amb-adapters/amb.patch` | registry tolerant of missing heavy providers, with the book and mem0-local providers registered; OpenAI client `extra_body` + unparseable-output fallback; LoCoMo judge without the "unanswerable → correct" clause |
 | `bench.sh` | AMB runs with local qwen35 (llama-server `:8081`) as answerer and judge |
 | `bench-val.sh` | the same through OpenCode Go (pi sessions via `pi-bridge.mjs`) — no GPU |
-| `pi-bridge.mjs` | OpenAI-compatible `/v1/chat/completions` answered by minimal pi sessions (`pi` mode), or by a local server with memory-book's raw settings (`--raw <url> <model>`) |
+| `pi-bridge.mjs` | OpenAI-compatible `/v1/chat/completions` answered by minimal pi sessions (`pi` mode), or by a local server with pi-book's raw settings (`--raw <url> <model>`) |
 | `evidence.mjs` | LLM-free LoCoMo score: share of gold evidence turns present in each run's context |
 | `budget-eval.mjs` | LLM-free: evidence delivered per token budget, section vs bullet reads, all 10 conversations |
 | `write-quality/` | 23 coding-session scenarios and the runner that scores capture (junk, missed facts, scope, stale facts, secrets, journal) |

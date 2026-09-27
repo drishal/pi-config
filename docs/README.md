@@ -5,7 +5,7 @@ machine are in [../SETUP.md](../SETUP.md).
 
 | Page | Covers |
 |---|---|
-| [memory.md](memory.md) | the memory book: storage, tiers, recall, capture, guards, search, the `memory` tool, commands, config, CLI |
+| [memory.md](memory.md) | pi-book, the memory: storage, tiers, recall, capture, guards, search, the `memory` tool, commands, config, CLI |
 | [memory-benchmarks.md](memory-benchmarks.md) | how memory was measured (LoCoMo, read budgets, write quality) and how it compares with mem0 |
 | [benchmarks/](benchmarks/README.md) | the benchmark harness, to re-run those numbers |
 | [extensions/README.md](extensions/README.md) | every local extension: what it does, commands, settings |
@@ -25,10 +25,10 @@ machine are in [../SETUP.md](../SETUP.md).
     AGENTS.md                       global system prompt (style, tool routing)
     settings.json, pi.env           shared settings (configuration.md)
     extensions/                     local extensions (extensions/README.md)
-      memory-book/                  memory (memory.md)
+      pi-book/                  memory (memory.md)
     themes/                         base16 YAML → pi themes
     — private, never tracked —
     model-state.json, .env, auth.json, models.json, mcp-adapter.json
-    book/                           the memory book
+    book/                           pi-book's notes
     sessions/, skills/, npm/, stream/
 ```

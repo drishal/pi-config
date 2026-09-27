@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 const here = path.dirname(new URL(import.meta.url).pathname);
-const MB = path.join(os.homedir(), ".pi/agent/extensions/memory-book");
+const MB = path.join(os.homedir(), ".pi/agent/extensions/pi-book");
 const { Memory, DEFAULTS } = await import(`${MB}/memory.ts`);
 
 const dir = path.join(here, "budget-book");

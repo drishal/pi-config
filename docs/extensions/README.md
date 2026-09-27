@@ -7,7 +7,7 @@ Packages are listed in [SETUP.md](../../SETUP.md) step 6.
 | Extension | One line |
 |---|---|
 | [`00-env.ts`](#00-envts) | loads `pi.env` and `.env` before everything else |
-| [`memory-book/`](#memory-book) | long-term memory as Markdown notes — [full doc](../memory.md) |
+| [`pi-book/`](#pi-book) | long-term memory as Markdown notes — [full doc](../memory.md) |
 | [`microcall.ts`](#microcallts) | one-shot model calls as minimal isolated pi sessions — [full doc](microcall.md) |
 | [`statusline.ts`](#statuslinets) | two-line footer with the real starship prompt |
 | [`neat-render.ts`](#neat-renderts) | compact, Claude-Code-shaped transcript rows |
@@ -36,7 +36,7 @@ A variable already in the environment wins — unless a parent pi exported it
 `KEY=value` lines, `#` comments, optional `export`, single or double quotes, no
 interpolation. `/env` lists names and sources, never values.
 
-## memory-book/
+## pi-book/
 
 Recall at session start, capture after each run, a journal of recent sessions,
 and search over pi's past sessions. Tool `memory`; commands `/remember`,

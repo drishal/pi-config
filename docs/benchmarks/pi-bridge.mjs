@@ -1,11 +1,11 @@
 // pi-bridge — an OpenAI-compatible /v1/chat/completions that answers through
-// memory-book's "pi" mode: every request is one minimal isolated pi session
+// pi-book's "pi" mode: every request is one minimal isolated pi session
 // (microcall's design), so providers that only accept pi's own traffic —
 // OpenCode Go — work without any hand-built client or header.
 //
 //   node pi-bridge.mjs [port]      default 8095, binds 127.0.0.1 only
 //   node pi-bridge.mjs 8096 --raw http://127.0.0.1:8081/v1 qwen35
-//       raw backend instead: memory-book's "raw" mode (temperature 0, thinking
+//       raw backend instead: pi-book's "raw" mode (temperature 0, thinking
 //       off, max_tokens 4096) — gives mem0 exactly the settings the book's capture gets
 //   model: "provider/id" passes through; anything else uses the micro chain.
 //   response_format json_object / json_schema → JSON-only instruction + schema.
@@ -13,7 +13,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 
-const MB = path.join(os.homedir(), ".pi/agent/extensions/memory-book");
+const MB = path.join(os.homedir(), ".pi/agent/extensions/pi-book");
 const { makeLlm } = await import(`${MB}/llm.ts`);
 const agentDir = path.join(os.homedir(), ".pi/agent");
 const port = Number(process.argv[2] ?? 8095);

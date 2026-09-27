@@ -1,10 +1,10 @@
-// node run.mjs <label> <llm-json> [reps] — write-quality check for memory-book capture.
+// node run.mjs <label> <llm-json> [reps] — write-quality check for pi-book capture.
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { SCENARIOS } from "./scenarios.mjs";
 
-const MB = path.join(os.homedir(), ".pi/agent/extensions/memory-book");
+const MB = path.join(os.homedir(), ".pi/agent/extensions/pi-book");
 const { Memory, DEFAULTS } = await import(`${MB}/memory.ts`);
 
 const [label, llmJson, repsArg] = process.argv.slice(2);

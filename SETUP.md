@@ -122,7 +122,7 @@ pi creates most of this on first run. What matters:
 | `settings.json`                        | Global settings, extensions, theme         | Yes (step 4; runtime keys filtered) |
 | `mcp-adapter.json`                     | MCP server definitions (pi-mcp-adapter)    | **No** (yours; suggestions in step 5) |
 | `model-state.json`, `.env`             | Model pick, memory/micro models; per-machine env and secrets | **No** (per machine) |
-| `book/`                                | The memory book: your private notes (step 8) | **No** (private; never synced) |
+| `book/`                                | pi-book's notes: private (step 8)            | **No** (private; never synced) |
 | `pi.env`                               | Shared env switches                        | Yes (step 4b) |
 | `npm/`                                 | pi's package install tree                  | **No** (rebuilt by `setup.sh`) |
 | `extensions/`                          | Local TypeScript extensions                | Yes, except the machine-local ones (step 7) |
@@ -136,7 +136,7 @@ pi creates most of this on first run. What matters:
 `AGENTS.md` is worth calling out: it carries the MCP routing rules that tell
 the model which tool to reach for (`web_search`/`web_fetch` for the web,
 obscura for pages that need a real browser, grep_app for public code, context7
-for library docs, nixos for packages; memory is the memory book, step 8). Without it the
+for library docs, nixos for packages; memory is pi-book, step 8). Without it the
 servers are present but rarely chosen well.
 
 ## 4. `settings.json` (non-model settings)
@@ -322,7 +322,7 @@ An MCP search server such as `argus` is redundant alongside it.
 | `obscura`   | STDIO | The `obscura` Rust binary on `PATH`. Headless browser / page render.                                                                       |
 | `nixos`     | STDIO | `uvx`. Query nixpkgs / NixOS options.                                                                                                      |
 
-Memory is not an MCP server: it is the memory-book extension (step 8).
+Memory is not an MCP server: it is the pi-book extension (step 8).
 
 ## 6. Extensions (npm packages)
 
@@ -453,7 +453,7 @@ machine only would be listed by name in `.gitignore` instead):
 | `microcall.ts` | One-shot side calls for other extensions (`globalThis[Symbol.for("pi.microcall")]`), each run as a fresh isolated in-process pi session: no extensions, skills, AGENTS.md or tools, in-memory, thinking off. Because it is a real pi session, requests carry pi's own provider headers — so it works on providers that reject raw SDK calls (OpenCode Go). Model chain: `model-state.json` `"micro"` (`model` + `fallbacks`), else the caller's default, else the session model. `/microcall` shows the chain and recent calls; `/microcall test` round-trips. |
 | `eval/` | `eval` tool: Python (`runner.py`, plain CPython — `python3` on PATH or `EVAL_PYTHON`) and JavaScript (`kernel.cjs`, Node REPL semantics) in persistent per-session kernels. Last-expression value, top-level await, `!cmd`/`%pip` in Python; Ctrl+C/timeout interrupts a cell, and a kernel that will not stop is restarted. Modelled on omp's `eval`. |
 | `00-env.ts` | Loads `pi.env` (shared) and `.env` (this machine) into the environment before every other extension; `/env` shows names and sources. See step 4b. |
-| `memory-book/` | Long-term memory as Markdown notes in `~/.pi/agent/book/` — recall, capture, the `memory` tool, `/remember`, `/memory`. See step 8. |
+| `pi-book/` | Long-term memory as Markdown notes in `~/.pi/agent/book/` — recall, capture, the `memory` tool, `/remember`, `/memory`. See step 8. |
 | `herdr-agent-state.ts` | Publishes agent state for desktop integrations. |
 | `statusline.ts` | The two-line footer: model / provider / thinking and extension statuses, then the real `starship prompt` plus context, tokens, cache hit rate, cost and tok/s. See step 6b. |
 | `local-llama-autodetect.ts` | Finds a running llama.cpp `llama-server` (`$LOCAL_LLAMA_URL`, else `models.json`'s `local-model` baseUrl, else `localhost:8081`/`8080`) and registers it as the `local-model` provider with the server's real context window, thinking levels and vision support. `/local-model` re-detects after you restart the server with another model. Fails fast and registers nothing when no server answers. |
@@ -510,12 +510,12 @@ this session, so the npm extensions and MCP servers are **not yet loaded** —
 `/mcp-adapter` will show nothing until you restart. Exit pi and relaunch it, then
 continue from step 8.
 
-## 8. Memory (memory book)
+## 8. Memory (pi-book)
 
 Full reference: [docs/memory.md](docs/memory.md); measurements:
 [docs/memory-benchmarks.md](docs/memory-benchmarks.md).
 
-Long-term memory is `extensions/memory-book/`: a small book of Markdown notes
+Long-term memory is `extensions/pi-book/`: a small book of Markdown notes
 you can read and fix by hand, in `~/.pi/agent/book/`. The book is private — no
 git repo, not synced, outside this repo's allowlist and on the pre-commit
 never-list — because pi fills it with what it learns about you and your projects.
@@ -600,7 +600,7 @@ nixos-desktop the endpoint is the `llama-embed` home-manager user service
 llama-server, CPU only (the GPU is hidden from the unit, `Nice=10`), ~500 MB
 RAM, ~13 ms a query, ~25 new sections a second.
 
-**CLI** — `node ~/.pi/agent/extensions/memory-book/cli.ts status | search <q> |
+**CLI** — `node ~/.pi/agent/extensions/pi-book/cli.ts status | search <q> |
 recall <prompt> | capture < transcript | history <q>` works outside pi (`--project <id>`;
 `PI_MEMORY_DIR` points it at another book).
 
@@ -622,7 +622,7 @@ pi                       # launches; no config errors
 # inside pi:
 /mcp-adapter             # lists every server you configured, each "connected"
 # tools from whichever servers you configured should appear
-/memory                  # memory book status (step 8)
+/memory                  # pi-book status (step 8)
 ```
 
 Then check that an extension tool like `ask_user_question` or the pi-lens
