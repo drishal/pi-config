@@ -374,14 +374,6 @@ What they are:
 - `pi-x-search` — searches X with verbatim post quotes and resolved URLs.
   Needs xAI auth (`/login` → xAI, or `XAI_API_KEY`). Note it **searches**;
   it cannot fetch a specific X URL — use obscura for that.
-- `@joemccann/pi-pdf` — 12 PDF tools (text/table extraction, `pdf_to_images`,
-  merge/split, forms, OCR, …) plus a `pdf` skill. It runs `python3` from
-  `PATH` with no way to point it elsewhere, so that `python3` must have
-  `pypdf pdfplumber reportlab` (and `pdf2image pytesseract pypdfium2 Pillow`
-  plus `poppler`/`tesseract` for page images and OCR). NixOS has no user
-  site-packages (PEP 668), so this machine uses a uv venv at
-  `~/.venvs/pi-pdf` and a `~/.local/bin/python3` shim that execs it — which
-  makes that venv every shell's `python3`, not just pi's.
 ### 6b. Footer (`extensions/statusline.ts`)
 
 The footer is this repo's own two-line status line, not a package:
@@ -481,6 +473,22 @@ Nothing below is installed by `setup.sh`; pick what fits your work.
 
   Teaches CDP / page-render usage. Install it only if you use the obscura MCP
   server (step 5).
+- **`pdf`** → the MIT skill from `@joemccann/pi-pdf`, without the package: its
+  12 `pdf_*` tools cost ~1.8k tokens in every session, while the skill does the
+  same work (text/tables, merge/split, rotate, watermark, encrypt, forms, OCR)
+  in Python for ~150 tokens until it is used.
+
+  ```bash
+  cd /tmp && npm pack @joemccann/pi-pdf && tar xzf joemccann-pi-pdf-*.tgz
+  cp -r package/skills/pdf ~/.pi/agent/skills/ && cp package/LICENSE ~/.pi/agent/skills/pdf/
+  rm -rf package joemccann-pi-pdf-*.tgz
+  ```
+
+  It needs `python3` with `pypdf pdfplumber reportlab pdf2image pytesseract
+  pypdfium2 pillow`, plus `tesseract`, `poppler` and `qpdf`. On NixOS declare
+  them (dotfiles: a `python3.withPackages` entry in home-manager — the one
+  `python3` on PATH, so pi's `eval` tool gets them too) and replace the skill's
+  `pip install` line with a pointer to that.
 - **`pi-lens-*`** (`ast-grep`, `lsp-navigation`, `write-ast-grep-rule`,
   `write-tree-sitter-rule`) → no manual copy; shipped by the `pi-lens` npm
   extension (step 6).

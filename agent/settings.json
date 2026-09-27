@@ -13,8 +13,7 @@
     "npm:pi-mono-review",
     "npm:pi-simplify",
     "npm:pi-web-access",
-    "npm:pi-x-search",
-    "npm:@joemccann/pi-pdf"
+    "npm:pi-x-search"
   ],
   "defaultTools": [
     "read",
