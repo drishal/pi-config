@@ -6,7 +6,7 @@
  * otherwise have to live in each machine's shell profile. Two files in the
  * agent dir, later winning:
  *
- *   pi.env   shared, tracked in the dotfiles repo (bootstrap links it).
+ *   pi.env   shared, tracked in this repo (~/.pi).
  *            Non-secret switches only — it is committed.
  *   .env     this machine only: never linked, synced or committed; the place
  *            for per-machine values and secrets (like ~/.hermes/.env).

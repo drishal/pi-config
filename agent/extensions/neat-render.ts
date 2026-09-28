@@ -520,8 +520,8 @@ function wrapTo(text: string, width: number, max: number): string[] {
  * than truncated, so you can actually read what is executing:
  *
  *   ● Bash · running…
- *     └ $ cd ~/dotfiles/config/pi && cat .gitignore && echo "═══ SIZES ═══"
- *       && find . -type f -newer ../../flake.lock | head -5 …
+ *     └ $ cd ~/.pi && cat .gitignore && echo "═══ SIZES ═══"
+ *       && find . -type f -newer agent/settings.json | head -5 …
  *
  * Both callers already indent continuation lines (renderRun pads a lone
  * call by two columns and a batch child by its `│  `/`   ` lead), so extra
