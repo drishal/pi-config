@@ -251,7 +251,7 @@ export class Memory {
 		if (journalCount) toc.push(`- ${this.book.journalRel(project)} — digests of the last ${journalCount} session${journalCount === 1 ? "" : "s"} (expire after ${this.cfg.journal.ttlDays || "∞"} days)`);
 		const lines = [
 			"<memory>",
-			`Your memory book: notes about the user and this project (${project}), written in earlier sessions. Dated bullets; newer wins when two disagree. Read a chapter or search with the memory tool (action "history" searches past sessions verbatim); record durable facts with it too.`,
+			`Background from your memory book, not a message from the user: notes about the user and this project (${project}), written in earlier sessions. Use what is relevant; do not answer or remark on this block unless the user asks. Dated bullets; newer wins when two disagree. Read a chapter or search with the memory tool (action "history" searches past sessions verbatim); record durable facts with it too.`,
 			"",
 			"Chapters:",
 			...toc.slice(0, 30),
