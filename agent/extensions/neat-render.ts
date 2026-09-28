@@ -52,17 +52,20 @@
  *   NEAT_RENDER_FRAME=0  ctrl+o shows pi's tinted box instead of the
  *                        omp-style frame (command / Output / status)
  *   NEAT_RENDER_FOLD_THINKING=0  show fenced code inside thinking verbatim
+ *   NEAT_RENDER_THINKING=0  pi's own "Thinking..." label instead of the
+ *                        opencode-style disclosure line on thinking blocks
  *   NEAT_RENDER_INSET=n  left inset for tool rows (default 1, matching pi's
  *                        message output pad; set 0 to hug the left edge)
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { highlightCode, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, highlightCode, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 const CARD_PATCH = Symbol.for("dr.pi.neatRender.card.v1");
 const ROW_PATCH = Symbol.for("dr.pi.neatRender.row.v1");
 const GROUP_PATCH = Symbol.for("dr.pi.neatRender.group.v1");
+const THINK_PATCH = Symbol.for("dr.pi.neatRender.thinking.v1");
 
 type ThemeLike = {
 	fg(slot: string, text: string): string;
@@ -975,6 +978,168 @@ function renderRun(run: ToolRow[], theme: ThemeLike, width: number, rules: boole
 	return out;
 }
 
+/* ── thinking blocks: opencode-style disclosure ─────────────────────────── */
+
+/**
+ * pi draws a collapsed thinking block as the same "Thinking..." for every
+ * block, and an expanded one as a wall of dim italic text. This gives each
+ * block one line that says what it was about, the way opencode does:
+ *
+ *   ● Thinking: Inspecting the PR workflow         while it streams (pulsing)
+ *   ▸ Thought: Inspecting the PR workflow · ~340 tokens     collapsed
+ *   ▾ Thought: Inspecting the PR workflow · ~340 tokens     expanded, then the
+ *       reasoning, indented under it                        text itself
+ *
+ * The title is the reasoning's bold opening line when it has one (OpenAI-style
+ * summaries start "**Title**"), else its first sentence.
+ *
+ * Nothing about visibility changes: pi still decides what is open (Ctrl+T for
+ * all blocks, a click for one) and still owns each block's MouseRegion. After
+ * pi rebuilds the message this only swaps what the region draws, so clicks
+ * and Ctrl+T keep working and no pi logic is duplicated.
+ */
+
+type ContentBlock = { type?: string; thinking?: string };
+type ThinkingRun = { text: string; done: boolean };
+type AssistantInternals = {
+	contentContainer?: { children?: unknown[] };
+	hideThinkingBlock?: boolean;
+	thinkingVisibilityOverrides?: Map<number, boolean>;
+	isStreaming?: boolean;
+	outputPad?: number;
+};
+type Region = { child: Renderable & { invalidate?(): void }; onMouse?: unknown; handleMouse?: unknown };
+
+/** Thinking runs exactly as pi groups them: consecutive blocks, empty ones skipped. */
+function thinkingRuns(content: ContentBlock[]): ThinkingRun[] {
+	const runs: ThinkingRun[] = [];
+	for (let i = 0; i < content.length; i++) {
+		if (content[i]?.type !== "thinking") continue;
+		const parts: string[] = [];
+		for (; i < content.length && content[i]?.type === "thinking"; i++) {
+			const t = (content[i]?.thinking ?? "").trim();
+			if (t) parts.push(t);
+		}
+		// Anything after the run means the model has moved on: it is finished.
+		const followed = i < content.length;
+		i--;
+		if (parts.length) runs.push({ text: parts.join("\n\n"), done: followed });
+	}
+	return runs;
+}
+
+/** The bold opening title when there is one, else the first sentence, as plain text. */
+export function thinkingTitle(text: string): string {
+	const bold = /^\*\*([^*\n]+)\*\*(?:\r?\n\r?\n|$)/.exec(text.trim());
+	if (bold) return bold[1].trim();
+	// First prose line: skip code fences and what they enclose.
+	let inFence = false;
+	let line = "";
+	for (const l of text.split("\n")) {
+		if (FENCE_RE.test(l)) {
+			inFence = !inFence;
+			continue;
+		}
+		if (!inFence && l.trim()) {
+			line = l;
+			break;
+		}
+	}
+	const plain = line
+		.replace(/[*_`#>]+/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	const sentence = /^(.{12,}?[.!?])(?:\s|$)/.exec(plain)?.[1] ?? plain;
+	return sentence.length > 72 ? `${sentence.slice(0, 71).trimEnd()}…` : sentence;
+}
+
+function tokenCount(chars: number): string {
+	const n = Math.max(1, Math.round(chars / 4));
+	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+class ThinkingView {
+	private readonly run: ThinkingRun;
+	private readonly body: (Renderable & { invalidate?(): void }) | undefined;
+	private readonly pad: number;
+
+	constructor(run: ThinkingRun, body: (Renderable & { invalidate?(): void }) | undefined, pad: number) {
+		this.run = run;
+		this.body = body;
+		this.pad = pad;
+	}
+
+	render(width: number): string[] {
+		const theme = state.theme;
+		if (!theme) return this.body?.render(width) ?? [];
+		const title = thinkingTitle(this.run.text);
+		let head: string;
+		if (!this.run.done) {
+			const dot = theme.fg(pulseOn() && !off("NEAT_RENDER_PULSE") ? "warning" : "dim", "●");
+			head = `${dot} ${theme.fg("thinkingText", "Thinking")}${title ? theme.fg("dim", `: ${title}`) : ""}`;
+		} else {
+			const arrow = theme.fg("dim", this.body ? "▾" : "▸");
+			const detail = [title, `~${tokenCount(this.run.text.length)} tokens`].filter(Boolean).join(" · ");
+			head = `${arrow} ${theme.fg("thinkingText", "Thought")}${theme.fg("dim", `: ${detail}`)}`;
+		}
+		const lines = [truncateToWidth(" ".repeat(this.pad) + head, width)];
+		if (this.body) {
+			// pi's markdown keeps its own pad, so the text hangs under the title.
+			const indent = "  ";
+			for (const line of this.body.render(Math.max(8, width - indent.length))) lines.push(indent + line);
+		}
+		return lines;
+	}
+
+	invalidate(): void {
+		this.body?.invalidate?.();
+	}
+}
+
+function decorateThinking(host: AssistantInternals, message: { content?: ContentBlock[] }): void {
+	const kids = host.contentContainer?.children;
+	if (!Array.isArray(kids) || !Array.isArray(message?.content)) return;
+	const runs = thinkingRuns(message.content);
+	let index = 0;
+	for (const kid of kids) {
+		// Only thinking runs are wrapped in a MouseRegion, one per run, in order.
+		const region = kid as Region;
+		if (!region || typeof region.handleMouse !== "function" || !region.child) continue;
+		const run = runs[index];
+		const hidden = host.thinkingVisibilityOverrides?.get(index) ?? host.hideThinkingBlock ?? false;
+		index++;
+		if (!run) break;
+		const done = run.done || !host.isStreaming;
+		region.child = new ThinkingView({ ...run, done }, hidden ? undefined : region.child, host.outputPad ?? 1);
+	}
+}
+
+type UpdateFn = (this: unknown, message: unknown, isStreaming?: boolean) => void;
+type ThinkingPatchable = { updateContent: UpdateFn; [key: symbol]: unknown };
+
+function installThinking(): ThinkingPatchable | undefined {
+	const proto = (AssistantMessageComponent as unknown as { prototype?: ThinkingPatchable } | undefined)?.prototype;
+	if (!proto || typeof proto.updateContent !== "function" || proto[THINK_PATCH]) return undefined;
+	const original = proto.updateContent;
+	proto.updateContent = function (message: unknown, isStreaming?: boolean) {
+		original.call(this, message, isStreaming);
+		try {
+			decorateThinking(this as AssistantInternals, message as { content?: ContentBlock[] });
+		} catch {
+			/* keep pi's own rendering */
+		}
+	} as UpdateFn;
+	proto[THINK_PATCH] = original;
+	return proto;
+}
+
+function uninstallThinking(proto: ThinkingPatchable | undefined): void {
+	if (!proto) return;
+	const original = proto[THINK_PATCH];
+	if (typeof original === "function") proto.updateContent = original as UpdateFn;
+	delete proto[THINK_PATCH];
+}
+
 /* ── wiring ────────────────────────────────────────────────────────────── */
 
 function uninstall(proto: Patchable | undefined, key: symbol): void {
@@ -1059,6 +1224,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	const card = off("NEAT_RENDER_CARD") ? undefined : installCard();
+	const thinking = off("NEAT_RENDER_THINKING") ? undefined : installThinking();
 	const rows = off("NEAT_RENDER_ROWS") ? undefined : installRows();
 	// Grouping composes the row renderer, so it only makes sense with it.
 	const group = rows ? installGrouping() : undefined;
@@ -1075,5 +1241,6 @@ export default function (pi: ExtensionAPI) {
 		uninstall(group, GROUP_PATCH);
 		uninstall(rows, ROW_PATCH);
 		uninstall(card, CARD_PATCH);
+		uninstallThinking(thinking);
 	});
 }

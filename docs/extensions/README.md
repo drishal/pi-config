@@ -87,6 +87,10 @@ tool, including those of other extensions.
 - tool rows as call + outcome; running commands wrapped as `└ $ …`
 - inline edit diffs; a pulsing bullet while a tool runs
 - a bash command's leading `# comment` lines shown dimmed above the call
+- thinking blocks as one opencode-style line: `● Thinking: <title>` while it
+  streams, `▸ Thought: <title> · ~340 tokens` when collapsed, `▾ Thought: …` with
+  the reasoning indented when open. Ctrl+T and clicks still toggle them; the
+  title is a bold opening line or the first sentence
 - Ctrl+O: an omp-style frame — syntax-highlighted command, `Output` divider,
   status in the bottom border
 
@@ -94,7 +98,8 @@ Env switches (all default on unless noted): `NEAT_RENDER=0` (off),
 `NEAT_RENDER_CARD`, `NEAT_RENDER_ROWS`, `NEAT_RENDER_SPLIT`,
 `NEAT_RENDER_BATCH=1` / `NEAT_RENDER_RULES=1` (restore batch headers / rules),
 `NEAT_RENDER_PULSE`, `NEAT_RENDER_COMMENTS`, `NEAT_RENDER_HIGHLIGHT`,
-`NEAT_RENDER_FRAME`, `NEAT_RENDER_FOLD_THINKING`, `NEAT_RENDER_INSET=n`.
+`NEAT_RENDER_FRAME`, `NEAT_RENDER_FOLD_THINKING`, `NEAT_RENDER_THINKING`,
+`NEAT_RENDER_INSET=n`.
 Do not combine with other extensions that patch the same components
 (`pi-tool-call-markers`, `pi-content-layout`, `pi-cc-extensions`).
 
