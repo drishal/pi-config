@@ -53,9 +53,10 @@ server. It works with **no configuration** — Exa MCP serves it keyless. SearXN
 is optional and only worth wiring if you want search that never leaves your
 network.
 
-`pi-web-access` reads `web-search.json`, resolved in this order: the dir named
-by `PI_CODING_AGENT_DIR`, then `$XDG_CONFIG_HOME/pi/`, then `~/.pi/`, then
-`~/.pi/agent/`. Any of those works.
+`pi-web-access` reads `web-search.json` from `$PI_CODING_AGENT_DIR` when that
+is set, otherwise from `~/.pi/agent/` (or `~/.pi/` if only that one has the
+file). With `XDG_CONFIG_HOME` set it reads `$XDG_CONFIG_HOME/pi/` (or `~/.pi/`)
+instead and never looks in `~/.pi/agent/`.
 
 ```json
 {
