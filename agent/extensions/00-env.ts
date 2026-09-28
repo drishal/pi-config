@@ -2,7 +2,7 @@
  * 00-env — environment files for pi, loaded before every other extension.
  *
  * pi reads no env file of its own, so switches that other extensions and
- * packages read from process.env (PI_BG_FEATURES, …) would
+ * packages read from process.env (PI_TMUX_STREAM, PI_BOOK, …) would
  * otherwise have to live in each machine's shell profile. Two files in the
  * agent dir, later winning:
  *

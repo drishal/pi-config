@@ -51,8 +51,7 @@ it in its private `settings.json` as `defaultProvider` / `defaultModel`, with
 
 `KEY=value` files loaded by `00-env.ts` before any other extension; `.env`
 overrides `pi.env`, and your shell overrides both. `pi.env` is committed, so
-secrets never go there. Currently: `PI_BG_FEATURES=process`
-(pi-background-tasks without its ~3.9k tokens of extra tool definitions).
+secrets never go there. It sets nothing at the moment.
 
 Env switches read by our extensions:
 

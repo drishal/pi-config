@@ -177,7 +177,7 @@ The shared file, as a starting point:
   "packages": [
     "npm:@gamaraan/todos-tool",
     "npm:@narumitw/pi-plan-mode",
-    "npm:pi-background-tasks",
+    "npm:@vanillagreen/pi-background-tasks",
     "npm:pi-hashline-edit-pro",
     "npm:pi-lens",
     "npm:pi-mcp-adapter",
@@ -260,11 +260,11 @@ other extension runs (the `00-` prefix makes it load first — keep it):
 
 | File | Scope | Holds |
 |---|---|---|
-| `agent/pi.env` | tracked in this repo | non-secret switches, e.g. `PI_BG_FEATURES=process` |
+| `agent/pi.env` | tracked in this repo | non-secret switches (none needed at the moment) |
 | `~/.pi/agent/.env` | this machine only, never committed (not on the allowlist) | per-machine values and secrets |
 
 `.env` overrides `pi.env`; a variable exported in your shell overrides both, so
-a one-off `PI_BG_FEATURES=process,fusion pi` still works. Values that a parent
+a one-off `PI_BOOK=off pi` still works. Values that a parent
 pi loaded (and a bash tool, a tmux server started from pi, or a nested pi
 inherited) are reloaded from the files rather than treated as your overrides.
 `/env` lists what was loaded from where — names only, never values. This
@@ -364,8 +364,11 @@ What they are:
 - `@gamaraan/todos-tool` — phased todo tool with reminders and a HUD
   (an Oh-My-Pi-style `todo`; pi ships no todo tool of its own).
 - `@narumitw/pi-plan-mode` — Codex-like read-only `/plan` collaboration mode.
-- `pi-background-tasks` — durable background shell tasks and read-only
-  delegated agents, run as child pi processes.
+- `@vanillagreen/pi-background-tasks` — background shell tasks (`bg_task`,
+  `bg_status`): persistent logs, wake-ups on exit or on matching output, no
+  default timeout. Its postinstall writes a usage guide into
+  `APPEND_SYSTEM.md`; `extensions/strip-append-system.ts` keeps that out of
+  the prompt.
 - `pi-hashline-edit-pro` — hash-anchored read/replace/insert/grep. Every line
   gets a stable 4-char anchor; stale or ambiguous anchors are rejected rather
   than fuzzy-matched. `AGENTS.md` tells the model to prefer these over
