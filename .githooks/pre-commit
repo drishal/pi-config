@@ -7,8 +7,8 @@ set -uo pipefail
 fail=0
 
 # 1. Every staged path must be one the allowlist tracks (keep in sync with .gitignore).
-allowed='^(\.gitignore|\.gitattributes|\.githooks/.*|README\.md|SETUP\.md|setup\.sh|docs/.*|agent/(AGENTS\.md|settings\.json|pi\.env|subagents\.json|model-state_example\.json|extensions/.*|themes/.*))$'
-never='(^|/)(auth\.json|models\.json|models-store\.json|mcp\.json|mcp-adapter\.json|model-state\.json|\.env|trust\.json)$|(^|/)(sessions|memories|book|npm|stream|fff|subagents|secrets|tasks|skills)/'
+allowed='^(\.gitignore|\.githooks/.*|README\.md|SETUP\.md|setup\.sh|docs/.*|agent/(AGENTS\.md|settings\.shared\.json|pi\.env|subagents\.json|model-state_example\.json|extensions/.*|themes/.*))$'
+never='(^|/)(settings\.json|auth\.json|models\.json|models-store\.json|mcp\.json|mcp-adapter\.json|model-state\.json|\.env|trust\.json)$|(^|/)(sessions|memories|book|npm|stream|fff|subagents|secrets|tasks|skills)/'
 while IFS= read -r -d '' path; do
 	if [[ ! $path =~ $allowed ]] || [[ $path =~ $never ]]; then
 		echo "pre-commit: refusing to commit '$path' (not on the allowlist, or private state)" >&2
@@ -24,12 +24,12 @@ if hits=$(git diff --cached -U0 --diff-filter=ACMR | grep -E '^\+' | grep -nE "$
 	fail=1
 fi
 
-# 3. settings.json must arrive without machine keys (the clean filter should have run).
-if git diff --cached --name-only | grep -qx 'agent/settings.json'; then
-	if git show :agent/settings.json | grep -qE '"(defaultProvider|defaultModel|defaultThinkingLevel|lastChangelogVersion)"'; then
-		echo "pre-commit: staged agent/settings.json still has machine keys — run ./setup.sh (it defines the clean filter)" >&2
-		fail=1
-	fi
+# 3. A note, never a failure: packages installed locally (pi install) that the
+#    shared settings do not list yet — promote them if they should be shared.
+root="$(git rev-parse --show-toplevel)"
+if drift=$(node "$root/.githooks/sync-settings.mjs" --check 2>/dev/null | grep '^packages only in'); then
+	echo "pre-commit: note — $drift" >&2
+	echo "            share them with: node .githooks/sync-settings.mjs --promote packages" >&2
 fi
 
 exit $fail

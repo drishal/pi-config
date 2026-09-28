@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# After git updates the tree (pull, checkout, rebase), merge the curated
+# agent/settings.shared.json into pi's private agent/settings.json. See sync-settings.mjs.
+node "$(git rev-parse --show-toplevel)/.githooks/sync-settings.mjs" || true

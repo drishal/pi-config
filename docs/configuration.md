@@ -7,7 +7,8 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 
 | File | Holds | Tracked |
 |---|---|---|
-| `settings.json` | packages, theme, compaction, `statusline` | yes — pi's runtime keys stripped on staging |
+| `settings.shared.json` | hand-picked shared settings: packages, `defaultTools`, theme, compaction, `statusline` | yes |
+| `settings.json` | pi's live settings: the shared ones merged in, plus toggles and model picks | **no** — per machine |
 | `pi.env` | shared non-secret env switches | yes |
 | `AGENTS.md` | the global system prompt: style, tool routing | yes |
 | `extensions/`, `themes/` (YAML + hand-written JSON) | local extensions, themes | yes |
@@ -65,16 +66,27 @@ Env switches read by our extensions:
 | `LOCAL_LLAMA_URL` | local-llama-autodetect | server to probe first |
 | `LITELLM_BASE_URL` | litellm-auto | gateway URL |
 
-## settings.json keys of our own
+## Settings: shared and live
 
-pi ignores keys it does not know, so extensions keep their settings here:
+pi reads one global settings file, `agent/settings.json`, and rewrites it
+whenever you toggle something (Ctrl+T, `/settings`, the model and thinking
+pickers). So it is private, and the settings meant for every machine live in
+the tracked `agent/settings.shared.json`. `.githooks/sync-settings.mjs`
+merges the shared file into the live one — from `setup.sh` and from the git
+hooks after pull, checkout and rebase:
 
-- `statusline` — see [extensions](extensions/README.md#statuslinets)
+- a shared key that **changed** since the last sync is applied (objects key by
+  key); an unchanged one is left alone, so a machine can override it
+- a key removed from the shared file is removed locally unless it was changed
+- keys the shared file never had — toggles, model picks, `lastChangelogVersion`,
+  anything a future pi adds — are never touched
 
-Everything else in `settings.json` is pi's own (packages, theme, compaction,
-markdown). pi also writes `defaultProvider`, `defaultModel`,
-`defaultThinkingLevel` and `lastChangelogVersion` at runtime; the clean filter
-keeps them out of commits ([repo.md](repo.md)).
+`--check` reports what a sync would change; `--promote <key>` copies a key
+from the live file into the shared one (e.g. `packages` after `pi install`).
+The last applied shared file is kept in `agent/.settings.shared.applied.json`.
+
+pi ignores keys it does not know, so extensions keep their settings here too:
+`statusline` — see [extensions](extensions/README.md#statuslinets).
 
 ## Models and providers
 

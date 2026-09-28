@@ -7,7 +7,6 @@
 
 /*
 !/.gitignore
-!/.gitattributes
 !/.githooks/
 !/README.md
 !/SETUP.md
@@ -17,7 +16,7 @@
 !/agent/
 /agent/*
 !/agent/AGENTS.md
-!/agent/settings.json
+!/agent/settings.shared.json
 !/agent/pi.env
 !/agent/subagents.json
 !/agent/model-state_example.json

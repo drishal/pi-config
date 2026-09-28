@@ -1,6 +1,0 @@
-# pi writes the model pick and changelog version into settings.json at runtime.
-# This clean filter strips them whenever the file is staged, so the committed
-# copy holds only shared settings while the live file keeps its local keys.
-# Defined per clone by setup.sh (git config filter.pi-local-keys.*); marked
-# required, so a clone without it refuses to stage settings.json at all.
-agent/settings.json filter=pi-local-keys

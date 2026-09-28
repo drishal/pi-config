@@ -6,8 +6,13 @@
 #   ~/.pi/setup.sh                              re-run any time; idempotent
 #   ~/.pi/setup.sh --check                      report what is missing, change nothing
 #
-# Packages are not pinned by a lockfile: settings.json `packages[]` is the source
-# of truth and step 3 runs `pi install` for each entry (pin a version in the
+# Settings are split: agent/settings.shared.json is the tracked, hand-picked
+# part; agent/settings.json is pi's own private file, which it rewrites on every
+# toggle. Step 3 merges the shared file into it (.githooks/sync-settings.mjs,
+# also run by the git hooks after pull/checkout/rebase).
+#
+# Packages are not pinned by a lockfile: settings.shared.json `packages[]` is the
+# source of truth and step 4 runs `pi install` for each entry (pin a version in the
 # entry, e.g. npm:<package>@1.2.3, when something depends on it). pi's own
 # lockfile under agent/npm (written with --legacy-peer-deps) stays machine-local.
 set -uo pipefail
@@ -30,29 +35,42 @@ done
 mkdir -p "$PI/npm"
 
 # --- 2. git safeguards (per clone: git never versions its own config) -----
-# The clean filter strips pi's runtime keys from settings.json on staging; the
-# hook re-checks staged paths and content. See .gitattributes, .githooks/.
+# The hooks re-check staged paths and content (pre-commit) and keep pi's
+# settings.json merged with the shared file after pull/checkout/rebase.
 say "git:"
 if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-	LOCAL_KEYS='del(.defaultProvider, .defaultModel, .defaultThinkingLevel, .lastChangelogVersion)'
-	want_clean="jq --indent 2 '$LOCAL_KEYS'"
-	for kv in "filter.pi-local-keys.clean=$want_clean" "filter.pi-local-keys.smudge=cat" \
-		"filter.pi-local-keys.required=true" "core.hooksPath=.githooks"; do
-		key="${kv%%=*}"; val="${kv#*=}"
-		if [ "$(git -C "$ROOT" config --get "$key")" = "$val" ]; then ok "$key"; continue; fi
-		act "$key"
-		[ $CHECK -eq 1 ] || git -C "$ROOT" config "$key" "$val"
+	if [ "$(git -C "$ROOT" config --get core.hooksPath)" = ".githooks" ]; then ok "core.hooksPath"; else
+		act "core.hooksPath"
+		[ $CHECK -eq 1 ] || git -C "$ROOT" config core.hooksPath .githooks
+	fi
+	for hook in "$ROOT"/.githooks/*; do
+		[ -x "$hook" ] && continue
+		act "chmod +x .githooks/${hook##*/}"
+		[ $CHECK -eq 1 ] || chmod +x "$hook"
 	done
-	[ -x "$ROOT/.githooks/pre-commit" ] || { act "chmod +x .githooks/pre-commit"; [ $CHECK -eq 1 ] || chmod +x "$ROOT/.githooks/pre-commit"; }
+	# The settings.json clean filter older clones defined is gone with .gitattributes.
+	if git -C "$ROOT" config --get-regexp '^filter\.pi-local-keys\.' >/dev/null; then
+		act "remove the old filter.pi-local-keys config"
+		[ $CHECK -eq 1 ] || git -C "$ROOT" config --remove-section filter.pi-local-keys
+	fi
 else
-	say "  $ROOT is not a git checkout — skipping filter and hook"
+	say "  $ROOT is not a git checkout — skipping hooks"
 fi
 
-# --- 3. packages ----------------------------------------------------------
+# --- 3. settings: agent/settings.shared.json → pi's agent/settings.json ------
+say "settings:"
+if [ $CHECK -eq 1 ]; then
+	node "$ROOT/.githooks/sync-settings.mjs" --check | sed 's/^/  /'
+else
+	node "$ROOT/.githooks/sync-settings.mjs" | sed 's/^/  /'
+	ok "settings.json merged with settings.shared.json"
+fi
+
+# --- 4. packages ----------------------------------------------------------
 # One `pi install` per missing/mismatched packages[] entry. pi resolves peers
 # its own way (--legacy-peer-deps), so we never run npm here directly.
 # Installed-but-unpinned packages are left alone: upgrading is `pi update`.
-say "packages (from settings.json):"
+say "packages (from settings.shared.json, via settings.json):"
 spec_name() { local s="${1#npm:}" at=""; [ "${s:0:1}" = "@" ] && { at="@"; s="${s:1}"; }
 	printf '%s%s' "$at" "${s%%@*}"; }
 spec_ver()  { local s="${1#npm:}"; s="${s#@}"; [ "${s#*@}" != "$s" ] && printf '%s' "${s#*@}"; }
@@ -73,7 +91,7 @@ while IFS= read -r spec; do
 	pi install "$spec" >/dev/null 2>&1 || { say "  FAILED  pi install $spec"; exit 1; }
 done < <(jq -r '.packages[]? | if type=="string" then . else .source end' "$PI/settings.json")
 
-# --- 3b. memory (extensions/pi-book) ----------------------------------
+# --- 4b. memory (extensions/pi-book) ----------------------------------
 # Nothing to install: pi-book is plain TypeScript with no npm dependencies.
 # Its embeddings come from an OpenAI-compatible endpoint (model-state.json
 # "memory.embed", default llama-embed on 127.0.0.1:8090); without one, memory
@@ -85,7 +103,7 @@ else
 	say "  NOTE    no embedding server at ${EMBED_URL:-(disabled)}; memory search is keyword-only (SETUP.md step 8)"
 fi
 
-# --- 4. what this script cannot do ----------------------------------------
+# --- 5. what this script cannot do ----------------------------------------
 cat <<EOF
 
 Private, per machine — never tracked (see SETUP.md):
@@ -96,10 +114,13 @@ Private, per machine — never tracked (see SETUP.md):
   $PI/.env               optional per-machine env and secrets; overrides the
                          shared agent/pi.env (extensions/00-env.ts; /env lists both)
   $PI/skills/            your skills — personal, like mcp-adapter.json (SETUP.md step 7b)
+  $PI/settings.json      pi's own settings: toggles, model picks, plus everything
+                         merged in from agent/settings.shared.json (step 3)
   $PI/model-state.json   model pick + "micro"/"memory" sections (remember-model.ts;
                          agent/model-state_example.json shows the shape)
 
-Before committing: git status shows only allowlisted config. settings.json is
-staged through the clean filter (local model keys stripped); the pre-commit
-hook refuses private paths and token-shaped strings.
+Before committing: git status shows only allowlisted config; the pre-commit
+hook refuses private paths and token-shaped strings. Shared settings live in
+agent/settings.shared.json — after `pi install`, share new packages with
+  node .githooks/sync-settings.mjs --promote packages
 EOF

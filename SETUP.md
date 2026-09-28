@@ -21,12 +21,12 @@ in [docs/](docs/README.md).
 > sessions, memories, `auth.json`, `models.json`, `mcp-adapter.json`, caches, npm.
 > Three layers keep it out of git: `.gitignore` is an **allowlist** (everything
 > is ignored unless listed, so new files pi creates stay private by default);
-> a clean filter strips pi's runtime keys (`defaultProvider`, `defaultModel`,
-> `defaultThinkingLevel`, `lastChangelogVersion`) from `settings.json` on
-> staging while the live file keeps them; and `.githooks/pre-commit` refuses
-> private paths and token-shaped strings. The filter and hook are per clone —
-> `setup.sh` turns them on; a clone without the filter refuses to stage
-> `settings.json` at all.
+> settings are **split** — the tracked `agent/settings.shared.json` holds the
+> hand-picked settings, while pi's own `settings.json` stays private (pi rewrites
+> it on every toggle and model pick) and gets the shared settings merged in by
+> `setup.sh` and the git hooks after pull/checkout/rebase; and
+> `.githooks/pre-commit` refuses private paths and token-shaped strings. The
+> hooks are per clone — `setup.sh` turns them on.
 
 > **Out of scope: models & API keys.** You (the user) set these up first
 > yourself — `pi`, then `/login` for a subscription provider or drop an API
@@ -119,7 +119,8 @@ pi creates most of this on first run. What matters:
 | -------------------------------------- | ------------------------------------------ | ------------- |
 | `models.json`                          | Providers + API keys                       | **No** (you)  |
 | `auth.json`, `models-store.json`       | OAuth tokens from `/login`                 | **No** (pi)   |
-| `settings.json`                        | Global settings, extensions, theme         | Yes (step 4; runtime keys filtered) |
+| `settings.shared.json`                 | Shared settings: packages, tools, theme    | Yes (step 4)  |
+| `settings.json`                        | pi's live settings: shared ones merged in, plus toggles and model picks | **No** (per machine; step 4) |
 | `mcp-adapter.json`                     | MCP server definitions (pi-mcp-adapter)    | **No** (yours; suggestions in step 5) |
 | `model-state.json`, `.env`             | Model pick, memory/micro models; per-machine env and secrets | **No** (per machine) |
 | `book/`                                | pi-book's notes: private (step 8)            | **No** (private; never synced) |
@@ -139,16 +140,24 @@ obscura for pages that need a real browser, grep_app for public code, context7
 for library docs, nixos for packages; memory is pi-book, step 8). Without it the
 servers are present but rarely chosen well.
 
-## 4. `settings.json` (non-model settings)
+## 4. `settings.shared.json` (shared settings)
 
-Write `~/.pi/agent/settings.json` — but if the file **already exists**
-(because the user already ran `/model`), **merge these keys in; do not
-overwrite the file**. `/model` writes `defaultProvider` / `defaultModel`
-into `settings.json`, and blindly replacing the file wipes the model the
-user just configured. Preserve any existing `defaultProvider`,
-`defaultModel`, and `auth`-related keys; only add/update the keys below.
-The `defaultProvider` / `defaultModel` keys are model-related and are
-written by pi on `/model` — leave them out of what you add.
+Shared settings live in **`~/.pi/agent/settings.shared.json`** (tracked). pi
+itself reads and writes `~/.pi/agent/settings.json`, which is private: toggles
+(Ctrl+T, `/settings`), model picks and anything a future pi writes stay there.
+`.githooks/sync-settings.mjs` merges the shared file into it — `setup.sh` and
+the git hooks run it — with a 3-way merge: a shared key is applied when it
+*changed* since the last sync, so a local override survives until the shared
+value itself changes, and keys the shared file never had are never touched.
+
+- Edit shared settings in `settings.shared.json`, then run `setup.sh` (or
+  `node ~/.pi/.githooks/sync-settings.mjs`).
+- `pi install <pkg>` writes only `settings.json`; share the package with
+  `node ~/.pi/.githooks/sync-settings.mjs --promote packages`. The pre-commit
+  hook notes packages that are installed but not shared.
+- `sync-settings.mjs --check` reports what a sync would change.
+
+The shared file, as a starting point:
 
 ```json
 {
@@ -170,7 +179,6 @@ written by pi on `/model` — leave them out of what you add.
     "npm:pi-x-search"
   ],
   "defaultTools": ["read", "bash", "edit", "write", "find"],
-  "defaultThinkingLevel": "max",
   "compaction": {
     "enabled": true,
     "reserveTokens": 45000,
@@ -208,7 +216,7 @@ file name.
 mkdir -p ~/.pi/agent/themes
 curl -fsSL https://raw.githubusercontent.com/tinted-theming/schemes/spec-0.11/base24/catppuccin-mocha.yaml \
   -o ~/.pi/agent/themes/catppuccin-mocha.yaml
-# then: "theme": "catppuccin-mocha" in settings.json, or /settings → Theme
+# then: "theme": "catppuccin-mocha" in settings.shared.json (shared) or /settings → Theme (this machine)
 ```
 
 `extensions/base16-theme.ts` converts every `themes/<name>.yaml` (or `.yml`)
@@ -330,7 +338,7 @@ Memory is not an MCP server: it is the pi-book extension (step 8).
 
 ## 6. Extensions (npm packages)
 
-Already listed under `packages` in `settings.json` (step 4). On startup pi
+Already listed under `packages` in `settings.shared.json` (step 4). On startup pi
 installs missing entries into `~/.pi/agent/npm/` and updates
 `~/.pi/agent/npm/package.json`. To install/update explicitly:
 
@@ -395,7 +403,8 @@ starship never runs while drawing: it refreshes in the background after each
 prompt and run, and the footer shows the last result. Without starship on
 `PATH` the left side falls back to the directory name and git branch. Narrow
 terminals drop whole segments (tok/s, cache, cost, tokens) and truncate
-starship's text last. Settings, all optional, in `settings.json`:
+starship's text last. Settings, all optional, in `settings.shared.json` (or a
+machine's own `settings.json`):
 
 ```json
 "statusline": {
@@ -516,7 +525,7 @@ referenced sibling files) into the target dir — pi reads the file directly.
 ### ⚠️ Restart pi before steps 8–10
 
 Extensions (step 6 + 7) and MCP servers (step 5) load at pi **startup**,
-not mid-session. You've just written `settings.json` and `mcp-adapter.json` during
+not mid-session. You've just written `settings.shared.json` and `mcp-adapter.json` during
 this session, so the npm extensions and MCP servers are **not yet loaded** —
 `/mcp-adapter` will show nothing until you restart. Exit pi and relaunch it, then
 continue from step 8.
