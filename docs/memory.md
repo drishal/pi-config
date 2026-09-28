@@ -178,6 +178,11 @@ Every key is optional; these are the defaults:
 Environment overrides, mainly for tests: `PI_MEMORY_DIR` (the book) and
 `PI_MEMORY_CONFIG` (another JSON file with a `"memory"` section).
 
+`PI_BOOK=off` (or `0`) turns pi-book off for that pi: no recall, capture,
+expiry, tool or commands. Use it for benchmarks and scripted `pi -p` runs, so
+their prompts get no recall and their transcripts stay out of the book:
+`PI_BOOK=off pi -p "…"`.
+
 Capture sends conversation text to the configured model. On OpenCode Go keep
 personal data off "Contributor" models — their prompts train the vendor's
 models.

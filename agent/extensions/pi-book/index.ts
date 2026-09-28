@@ -39,6 +39,11 @@
  *     "journal": { "enabled": true, "ttlDays": 30, "recall": 2, "maxBullets": 8 }
  *   }
  * See llm.ts for the two model modes.
+ *
+ * PI_BOOK=off (or 0 / false / no) turns the whole extension off for that pi:
+ * no recall, no capture, no expiry pass, no tool or commands. Meant for
+ * benchmark and scripted `pi -p` runs, whose prompts memory would contaminate
+ * and whose transcripts do not belong in the book.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -134,6 +139,7 @@ class RecallView {
 }
 
 export default function (pi: ExtensionAPI) {
+	if (/^(off|0|false|no)$/i.test(process.env.PI_BOOK?.trim() ?? "")) return;
 	const agentDir = getAgentDir();
 	let memory: Memory | undefined;
 	let project = "";

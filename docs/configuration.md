@@ -59,6 +59,7 @@ Env switches read by our extensions:
 | Variable | Extension | Effect |
 |---|---|---|
 | `PI_MICRO_MODEL` | microcall | override the model chain |
+| `PI_BOOK` | pi-book | `off` turns it off entirely (benchmarks, scripted runs) |
 | `PI_MEMORY_DIR`, `PI_MEMORY_CONFIG` | pi-book | another book / config file |
 | `PI_TMUX_STREAM`, `PI_TMUX_SESSION`, `PI_TMUX_MAX_RESULT` | tmux-stream | force on/off, session name, result cap |
 | `NEAT_RENDER*` | neat-render | see [extensions](extensions/README.md#neat-renderts) |
