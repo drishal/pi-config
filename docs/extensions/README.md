@@ -11,7 +11,6 @@ Packages are listed in [SETUP.md](../../SETUP.md) step 6.
 | [`microcall.ts`](#microcallts) | one-shot model calls as minimal isolated pi sessions — [full doc](microcall.md) |
 | [`statusline.ts`](#statuslinets) | two-line footer with the real starship prompt |
 | [`neat-render.ts`](#neat-renderts) | compact, Claude-Code-shaped transcript rows |
-| [`remember-model.ts`](#remember-modelts) | remembers the model and thinking level per machine |
 | [`local-llama-autodetect.ts`](#local-llama-autodetectts) | registers a running llama-server with its real limits |
 | [`litellm-auto.ts`](#litellm-autots) | registers every model of a LiteLLM gateway — [recipe](litellm-auto.md) |
 | [`eval/`](#eval) | persistent Python / JavaScript kernels as a tool |
@@ -102,16 +101,6 @@ Env switches (all default on unless noted): `NEAT_RENDER=0` (off),
 `NEAT_RENDER_INSET=n`.
 Do not combine with other extensions that patch the same components
 (`pi-tool-call-markers`, `pi-content-layout`, `pi-cc-extensions`).
-
-## remember-model.ts
-
-Model picks change constantly and must not produce commits, so the last
-selected model and thinking level (plus per-model thinking pins) live in
-`agent/model-state.json` (never tracked) and are re-applied on every new
-session (not on resume/fork, where the session's own history wins). Writes
-merge, so other sections of that file (`micro`, `memory`) are kept. Prefer
-Enter over Ctrl+S in pi's model picker: Ctrl+S writes the pick into
-`settings.json`.
 
 ## local-llama-autodetect.ts
 

@@ -116,8 +116,8 @@ Private, per machine — never tracked (see SETUP.md):
   $PI/skills/            your skills — personal, like mcp-adapter.json (SETUP.md step 7b)
   $PI/settings.json      pi's own settings: toggles, model picks, plus everything
                          merged in from agent/settings.shared.json (step 3)
-  $PI/model-state.json   model pick + "micro"/"memory" sections (remember-model.ts;
-                         agent/model-state_example.json shows the shape)
+  $PI/model-state.json   our extensions' model config: "micro"/"memory" sections
+                         (agent/model-state_example.json shows the shape)
 
 Before committing: git status shows only allowlisted config; the pre-commit
 hook refuses private paths and token-shaped strings. Shared settings live in

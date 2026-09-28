@@ -1,10 +1,4 @@
 {
-  "provider": "<provider>",
-  "model": "<model-id>",
-  "thinkingLevel": "medium",
-  "modelThinkingLevels": {
-    "<provider>/<model-id>": "high"
-  },
   "micro": {
     "model": "<provider>/<cheap-model>",
     "fallbacks": [

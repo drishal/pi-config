@@ -122,7 +122,7 @@ pi creates most of this on first run. What matters:
 | `settings.shared.json`                 | Shared settings: packages, tools, theme    | Yes (step 4)  |
 | `settings.json`                        | pi's live settings: shared ones merged in, plus toggles and model picks | **No** (per machine; step 4) |
 | `mcp-adapter.json`                     | MCP server definitions (pi-mcp-adapter)    | **No** (yours; suggestions in step 5) |
-| `model-state.json`, `.env`             | Model pick, memory/micro models; per-machine env and secrets | **No** (per machine) |
+| `model-state.json`, `.env`             | memory/micro models; per-machine env and secrets | **No** (per machine) |
 | `book/`                                | pi-book's notes: private (step 8)            | **No** (private; never synced) |
 | `pi.env`                               | Shared env switches                        | Yes (step 4b) |
 | `npm/`                                 | pi's package install tree                  | **No** (rebuilt by `setup.sh`) |
@@ -453,7 +453,6 @@ machine only would be listed by name in `.gitignore` instead):
 | `read-guard/` | Trims a `read` only when it would overflow the context window, returning the first 30 lines plus a use-grep-instead directive. From little-coder. Replaced `pi-mono-context-guard`, which capped every read at 120 lines regardless of pressure. |
 | `compaction-continue/` | Watchdog that nudges pi to resume when a turn stalls. Upstream is unmaintained since 2026-05; the compaction half it was written for was fixed in pi 0.84.4, the stalled-turn half is still live. |
 | `sudo-session.ts` | `/sudo` elevation for the bash tool. |
-| `remember-model.ts` | Persists last model + thinking level across sessions in `model-state.json` and re-applies them on startup. |
 | `microcall.ts` | One-shot side calls for other extensions (`globalThis[Symbol.for("pi.microcall")]`), each run as a fresh isolated in-process pi session: no extensions, skills, AGENTS.md or tools, in-memory, thinking off. Because it is a real pi session, requests carry pi's own provider headers — so it works on providers that reject raw SDK calls (OpenCode Go). Model chain: `model-state.json` `"micro"` (`model` + `fallbacks`), else the caller's default, else the session model. `/microcall` shows the chain and recent calls; `/microcall test` round-trips. |
 | `eval/` | `eval` tool: Python (`runner.py`, plain CPython — `python3` on PATH or `EVAL_PYTHON`) and JavaScript (`kernel.cjs`, Node REPL semantics) in persistent per-session kernels. Last-expression value, top-level await, `!cmd`/`%pip` in Python; Ctrl+C/timeout interrupts a cell, and a kernel that will not stop is restarted. Modelled on omp's `eval`. |
 | `00-env.ts` | Loads `pi.env` (shared) and `.env` (this machine) into the environment before every other extension; `/env` shows names and sources. See step 4b. |
