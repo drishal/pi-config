@@ -19,6 +19,7 @@ Packages are listed in [SETUP.md](../../SETUP.md) step 6.
 | [`tmux-stream.ts`](#tmux-streamts) | live view of `pi -p` runs in tmux |
 | [`read-guard/`](#read-guard) | trims a `read` only when it would overflow the context |
 | [`compaction-continue/`](#compaction-continue) | nudges pi when a turn stalls |
+| [`strip-append-system.ts`](#strip-append-systemts) | keeps package-written guides out of the system prompt |
 | [`base16-theme.ts`](#base16-themets) | base16/base24 YAML schemes as pi themes |
 | [`herdr-agent-state.ts`](#herdr-agent-statets) | agent state for the herdr desktop integration |
 
@@ -167,6 +168,16 @@ first 30 lines plus a directive to use grep or a narrower range. Replaced
 continue, it sends a watchdog nudge; the agent answers through
 `watchdog_answer` instead of prose. The compaction half was fixed upstream in pi
 0.84.4; the stalled-turn half is still useful.
+
+## strip-append-system.ts
+
+Some packages (kendex-built ones, such as `@vanillagreen/pi-background-tasks`)
+use a postinstall script to write a usage guide into
+`~/.pi/agent/APPEND_SYSTEM.md`, which pi appends to every system prompt. The
+background-tasks guide is ~860 tokens that mostly repeat its tool
+descriptions, and every `pi update` writes it back. This removes those marked
+blocks from the prompt on each agent start. Your own text in the file is kept,
+and the prompt is identical on every turn, so caching is unaffected.
 
 ## base16-theme.ts
 
