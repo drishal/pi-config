@@ -76,6 +76,17 @@ instead and never looks in `~/.pi/agent/`.
 > `Blocked internal address for 127.0.0.1`, and search silently falls back to
 > a public provider. Set both.
 
+**Set `"toolActivation": "eager"`** — in the same file, SearXNG or not (this
+machine's `~/.pi/agent/web-search.json` holds just that). The default,
+`"dynamic"`, starts each session with a small `web_enable` tool and adds the
+four real web tools when the model calls it. That changes the tool list
+mid-session, which breaks the prompt cache from the tool definitions on: one
+full-price re-read of the whole prompt on a cloud provider, and a full
+re-prefill on a local hybrid model (125 s for 36k tokens on Bonsai 27B).
+Eager adds ~3.3k tokens to
+every request, cached after the first, which is cheaper as soon as most
+sessions search at some point.
+
 On NixOS the service is declared at `NixOS/hosts/common/searx.nix`. Three
 settings there matter to pi:
 

@@ -19,6 +19,7 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | `auth.json`, `models-store.json` | OAuth tokens | **no** |
 | `models.json` | providers and API keys | **no** |
 | `mcp-adapter.json` | MCP servers for pi-mcp-adapter, often with credentials | **no** — suggestions in SETUP.md step 5 |
+| `web-search.json` | pi-web-access: search backends, `toolActivation` | **no** — can hold API keys; see SETUP.md (SearXNG) |
 | `skills/` | your skills | **no** — personal |
 | `book/` | pi-book's notes | **no** — private |
 | `sessions/`, `stream/`, `npm/`, caches | runtime state | **no** |
