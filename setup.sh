@@ -93,15 +93,28 @@ done < <(jq -r '.packages[]? | if type=="string" then . else .source end' "$PI/s
 
 # --- 4b. memory (extensions/pi-book) ----------------------------------
 # Nothing to install: pi-book is plain TypeScript with no npm dependencies.
-# Its embeddings come from an OpenAI-compatible endpoint (model-state.json
-# "memory.embed", default llama-embed on 127.0.0.1:8090); without one, memory
-# search still works on keywords alone.
-EMBED_URL="$(jq -r '.memory.embed.url // "http://127.0.0.1:8090/v1"' "$PI/model-state.json" 2>/dev/null || echo "http://127.0.0.1:8090/v1")"
-if [ -n "$EMBED_URL" ] && curl -s -m 3 "$EMBED_URL/models" >/dev/null 2>&1; then
-	ok "memory embeddings answer at $EMBED_URL"
+# Its embeddings come from an OpenAI-compatible endpoint (pi-book.json
+# "embedding", default llama-embed on 127.0.0.1:8090); without one, memory
+# search still works on keywords alone. The endpoint and its key are resolved
+# by pi-book's own loader, so this probes exactly what pi-book will call —
+# with the key, since a gateway answers 401 without it. The key goes to curl
+# on stdin, never on its command line.
+EMBED="$(MEMORY_TS="$ROOT/agent/extensions/pi-book/memory.ts" AGENT="$PI" node --input-type=module -e '
+	const { loadConfig } = await import(process.env.MEMORY_TS);
+	const c = loadConfig(process.env.AGENT);
+	for (const w of c.warnings ?? []) console.error(w);
+	console.log([c.embed.url ?? "", c.embed.model ?? "", c.embed.apiKey ?? ""].join("\t"));' 2>/dev/null)"
+IFS=$'\t' read -r EMBED_URL EMBED_MODEL EMBED_KEY <<<"$EMBED"
+if [ -z "$EMBED" ]; then
+	say "  NOTE    could not read pi-book's config (node too old to load .ts?); skipped the embedding check"
+elif [ -z "$EMBED_URL" ]; then
+	ok "memory embeddings off (pi-book.json); search is keyword-only"
+elif printf 'Authorization: Bearer %s\n' "$EMBED_KEY" | curl -sf -m 5 -H @- "$EMBED_URL/models" >/dev/null 2>&1; then
+	ok "memory embeddings answer: $EMBED_MODEL @ $EMBED_URL"
 else
-	say "  NOTE    no embedding server at ${EMBED_URL:-(disabled)}; memory search is keyword-only (SETUP.md step 8)"
+	say "  NOTE    no embedding server answers at $EMBED_URL ($EMBED_MODEL); memory search is keyword-only (SETUP.md step 8)"
 fi
+unset EMBED EMBED_KEY
 
 # --- 5. what this script cannot do ----------------------------------------
 cat <<EOF
@@ -116,11 +129,13 @@ Private, per machine — never tracked (see SETUP.md):
   $PI/skills/            your skills — personal, like mcp-adapter.json (SETUP.md step 7b)
   $PI/settings.json      pi's own settings: toggles, model picks, plus everything
                          merged in from agent/settings.shared.json (step 3)
-  $PI/model-state.json   our extensions' model config: "micro"/"memory" sections
+  $PI/pi-book.json       pi-book's models: "model", "mode" (microcall|normal), "embedding"
+                         (agent/pi-book_example.json shows the shape; docs/memory.md)
+  $PI/model-state.json   our extensions' model config: the "micro" chain
                          (agent/model-state_example.json shows the shape)
 
 Before committing: git status shows only allowlisted config; the pre-commit
 hook refuses private paths and token-shaped strings. Shared settings live in
-agent/settings.shared.json — after `pi install`, share new packages with
+agent/settings.shared.json — after \`pi install\`, share new packages with
   node .githooks/sync-settings.mjs --promote packages
 EOF
