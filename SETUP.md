@@ -142,6 +142,7 @@ pi creates most of this on first run. What matters:
 | `skills/`                              | User-global skills (`SKILL.md` per dir)    | **No** (personal, like `mcp-adapter.json`; suggestions in step 7b) |
 | `themes/`                              | base16/base24 YAML (→ JSON via `base16-theme.ts`) or pi theme JSON | YAML + hand-written JSON only |
 | `subagents.json`                       | Per-extension config                       | Yes           |
+| `keybindings.json`                     | Key overrides: Ctrl+Backspace / Ctrl+H delete a word | Yes |
 | `AGENTS.md`                            | Global system prompt + MCP routing rules   | Yes           |
 | `mcp-cache.json`, `mcp-npx-cache.json` | Auto-generated MCP tool caches             | No (auto)     |
 | `sessions/`, `memories/`, `stream/`, `trust.json` | Runtime state                   | No (auto)     |

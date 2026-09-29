@@ -21,6 +21,7 @@
 !/agent/subagents.json
 !/agent/model-state_example.json
 !/agent/pi-book_example.json
+!/agent/keybindings.json
 !/agent/extensions/
 !/agent/themes/
 # skills/ is deliberately NOT listed: skills are personal, like mcp-adapter.json —

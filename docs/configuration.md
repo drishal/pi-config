@@ -13,6 +13,7 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | `AGENTS.md` | the global system prompt: style, tool routing | yes |
 | `extensions/`, `themes/` (YAML + hand-written JSON) | local extensions, themes | yes |
 | `subagents.json` | per-extension config | yes |
+| `keybindings.json` | editor key overrides: Ctrl+Backspace (and Ctrl+H, the raw byte foot/tmux send for it) delete a word | yes |
 | `model-state_example.json` | the shape of `model-state.json` | yes |
 | `model-state.json` | our extensions' model config: the `micro` chain | **no** — per machine |
 | `pi-book_example.json` | the shape of `pi-book.json` | yes |
