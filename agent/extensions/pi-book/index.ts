@@ -30,7 +30,11 @@
  * /memory reindex         re-embed everything and rewrite INDEX.md
  * /memory tidy            propose merges of duplicate or stale notes in scope
  *
- * Models and paths live in model-state.json "memory" (per machine):
+ * Models and paths live in agent/pi-book.json (per machine, never synced):
+ *   { "model": "provider/model", "mode": "microcall" | "normal",
+ *     "embedding": "provider/model" }
+ * — providers resolve from pi's models.json / auth.json (see memory.ts). The
+ * long form, also accepted there and in model-state.json "memory":
  *   "memory": {
  *     "llm":   { "mode": "pi" } | { "mode": "raw", "baseUrl": "…/v1", "model": "…" },
  *     "embed": { "url": "http://127.0.0.1:8090/v1", "model": "embeddinggemma" },
@@ -423,6 +427,7 @@ export default function (pi: ExtensionAPI) {
 				`in scope: ${chapters.length} chapters, ${notes} notes — user + ${scope}`,
 				`llm: ${describeLlm(m.cfg.llm)} · capture ${m.cfg.capture}`,
 				`embed: ${m.cfg.embed.url ? `${m.cfg.embed.model} @ ${m.cfg.embed.url}` : "off (keyword search only)"}${m.index.embedder.lastError ? ` — last error: ${m.index.embedder.lastError}` : ""}`,
+				...(m.cfg.warnings ?? []).map((w) => `⚠ ${w}`),
 				`recall: ${m.cfg.recall.enabled ? `on, notes ≤${m.cfg.recall.budgetTokens} tokens, block ≤${m.cfg.recall.maxChars} chars` : "off"} · ${recalled ? "done this session" : "pending"}`,
 				`journal: ${m.cfg.journal.enabled ? `${m.book.journal(scope).length} digests, recall ${m.cfg.journal.recall}, expire after ${m.cfg.journal.ttlDays || "∞"} days` : "off"}${session ? ` · this session [s:${session.id}]` : ""}`,
 				`archive: ${archive.files(scope, sessionFile).length} past sessions searchable (memory action "history")`,

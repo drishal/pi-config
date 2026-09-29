@@ -8,7 +8,7 @@ state that must never be committed. Three layers keep it that way.
 
 Everything is ignored unless listed with a `!` line: `.gitignore`,
 `.githooks/`, `README.md`, `SETUP.md`, `setup.sh`, `docs/`,
-and under `agent/` only `AGENTS.md`, `settings.shared.json`, `pi.env`, `subagents.json`, `model-state_example.json`, `extensions/` and `themes/`.
+and under `agent/` only `AGENTS.md`, `settings.shared.json`, `pi.env`, `subagents.json`, `model-state_example.json`, `pi-book_example.json`, `extensions/` and `themes/`.
 Anything pi or an extension creates later stays private by default.
 
 To track a new file, add a `!` line for it **and** add it to the pre-commit

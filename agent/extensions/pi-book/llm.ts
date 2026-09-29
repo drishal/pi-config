@@ -11,8 +11,9 @@
  *           run yourself (llama-server, vLLM, LM Studio) or providers whose
  *           terms allow direct API calls. `model` is the endpoint's model id.
  *
- * Configured in model-state.json under "memory.llm" (per machine, never
- * synced), e.g.
+ * Usually configured through agent/pi-book.json ("model" + "mode":
+ * "microcall" → "pi", "normal" → "raw", see memory.ts); the full form below
+ * also works there under "llm", or in model-state.json "memory.llm", e.g.
  *
  *   { "mode": "pi" }                                          microcall chain
  *   { "mode": "pi", "model": "opencode-go/deepseek-v4.1-flash" }
@@ -26,6 +27,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import { loadExtensionProviders } from "./providers.ts";
 
 export interface LlmConfig {
 	mode: "pi" | "raw";
@@ -65,9 +67,10 @@ export function stripThinking(text: string): string {
 	return text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 }
 
+/** In pi-book.json's terms: "microcall" is mode "pi", "normal" is mode "raw". */
 export function describe(cfg: LlmConfig): string {
-	if (cfg.mode === "raw") return `raw ${cfg.model ?? "?"} @ ${cfg.baseUrl ?? "?"}`;
-	return `pi ${cfg.model ?? "microcall chain"}`;
+	if (cfg.mode === "raw") return `normal ${cfg.model ?? "?"} @ ${cfg.baseUrl ?? "?"}`;
+	return `microcall ${cfg.model ?? "(microcall chain)"}`;
 }
 
 function raw(cfg: LlmConfig): Complete {
@@ -166,6 +169,11 @@ function standalonePi(cfg: LlmConfig, agentDir: string): Complete {
 				authPath: path.join(agentDir, "auth.json"),
 				modelsPath: path.join(agentDir, "models.json"),
 			});
+			// Providers that only an extension registers (litellm, local-model)
+			// would be unknown in a session built without extensions.
+			await loadExtensionProviders(agentDir, (name, config) =>
+				(runtime as { registerProvider(n: string, c: unknown): void }).registerProvider(name, config),
+			);
 			return { sdk, runtime };
 		})();
 		return ready;

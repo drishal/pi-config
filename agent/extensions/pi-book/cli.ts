@@ -189,6 +189,7 @@ async function main(): Promise<void> {
 			console.log(`project here: ${project}`);
 			console.log(`llm: ${describeLlm(memory.cfg.llm)}`);
 			console.log(`embed: ${memory.cfg.embed.model} @ ${memory.cfg.embed.url || "off"}`);
+			for (const w of memory.cfg.warnings ?? []) console.log(`⚠ ${w}`);
 		}
 	}
 }

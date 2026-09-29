@@ -146,8 +146,48 @@ embed at ~25 a second, once.
 
 ## Configuration
 
-`~/.pi/agent/model-state.json`, section `"memory"` (per machine, never synced).
-Every key is optional; these are the defaults:
+`~/.pi/agent/pi-book.json` (per machine, never synced; `agent/pi-book_example.json`
+shows it). Three keys cover the models:
+
+```json
+{
+  "model": "litellm/GLM-5.3-Flash",
+  "mode": "microcall",
+  "embedding": "litellm/Qwen3-Embedding-8B"
+}
+```
+
+- `model` — `"provider/model"` for capture, consolidation and `/memory tidy`
+  (the model that judges what is worth keeping). Unset: the microcall chain
+  (`model-state.json` `"micro"`, else the session's model).
+- `mode` — `"microcall"`: a minimal isolated pi session through
+  `microcall.ts`; works with any provider pi can use, including ones that only
+  accept a coding agent's own traffic (OpenCode Go). `"normal"` (or
+  `"direct"`): a plain OpenAI-compatible `/chat/completions` call to the
+  provider's endpoint — faster, no session; the provider must speak an
+  OpenAI-compatible API.
+- `embedding` — `"provider/model"` for `/embeddings`; `""` or `false` =
+  keyword search only.
+
+Providers resolve from pi's own files, so nothing is repeated: the base URL
+from `models.json` (for the `litellm` provider that `litellm-auto.ts`
+registers, `LITELLM_BASE_URL` or `~/.pi/secrets/litellm.url`), the key from
+`auth.json`, else the provider's `apiKey` in `models.json` (`!command`,
+`$VAR` and literal forms, as pi resolves them). A problem in the file (an
+unknown provider, a malformed `"provider/model"`) falls back to the default
+and is listed by `/memory`.
+
+From the CLI (and the benchmarks), `"microcall"` builds its pi session from
+pi's SDK without extensions. So that providers only an extension registers —
+the `litellm` gateway from `litellm-auto.ts`, `local-model` from
+`local-llama-autodetect.ts` — still exist there, pi-book first runs just those
+extensions (the ones that call `registerProvider`) against a stub API whose
+only live method is `registerProvider` (`providers.ts`).
+
+**Long form.** Every other setting — and the full `llm` / `embed` objects —
+can go in the same file, or in `model-state.json` `"memory"` (older home, still
+read; `pi-book.json` wins key by key). Every key is optional; these are the
+defaults:
 
 ```json
 "memory": {
@@ -170,7 +210,10 @@ Every key is optional; these are the defaults:
   temperature 0 and `max_tokens` 4096; `<think>` blocks are stripped.
   OpenCode Go URLs are refused in this mode.
 - `embed` — any OpenAI-compatible `/embeddings`: `url` (`""` = keyword-only),
-  `model`, `apiKey`, `queryPrefix` / `docPrefix`, `timeoutMs`, `searchBudgetMs`.
+  `model`, a key, `queryPrefix` / `docPrefix`, `timeoutMs`, `searchBudgetMs`.
+  For the key prefer `apiKeyFrom` — a pi provider name, e.g. `"litellm"`, whose
+  key is read from `auth.json`, so a gateway needs no second copy — or
+  `apiKeyEnv`; a literal `apiKey` also works.
 - `capture: "manual"` — no automatic capture; only `/remember` and the tool.
 - `journal.ttlDays: 0` — digests never expire.
 - `dir` — move the book (default `~/.pi/agent/book`).

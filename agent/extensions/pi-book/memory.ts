@@ -19,6 +19,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Book, cleanFact, JOURNAL, type JournalEntry, kebab, type Scope, today } from "./book.ts";
 import { type Complete, type LlmConfig, makeLlm } from "./llm.ts";
+import { resolveProvider, splitModelRef } from "./providers.ts";
 import { bulletUnits, type Chunk, chunkSections, type EmbedConfig, Embedder, type Hit, SearchIndex, sectionLines, tokenize } from "./search.ts";
 
 export interface MemoryConfig {
@@ -33,6 +34,8 @@ export interface MemoryConfig {
 	recall: { enabled: boolean; budgetTokens: number; maxChars: number; minCos: number };
 	/** "auto": extract after every agent run; "manual": only /remember and the tool. */
 	capture: "auto" | "manual";
+	/** Problems found in pi-book.json; each fell back to a default. Shown by /memory. */
+	warnings?: string[];
 	/** Medium tier. ttlDays 0 keeps digests forever; recall = digests shown at session start. */
 	journal: { enabled: boolean; ttlDays: number; recall: number; maxBullets: number };
 }
@@ -50,26 +53,120 @@ function expandHome(p: string): string {
 }
 
 /**
- * model-state.json "memory" (per machine, never synced) over the defaults.
- * PI_MEMORY_CONFIG points at another JSON file with a "memory" section, and
- * PI_MEMORY_DIR moves the book — both for tests and the benchmark.
+ * agent/pi-book.json — pi-book's own config file (per machine, never synced):
+ *
+ *   {
+ *     "model": "litellm/GLM-5.3-Flash",        capture + consolidation ("the judge")
+ *     "mode": "microcall",                     or "normal": a direct call
+ *     "embedding": "litellm/Qwen3-Embedding-8B"
+ *   }
+ *
+ *   model      "provider/model". Unset: the microcall chain (model-state.json
+ *              "micro", else the session's model).
+ *   mode       "microcall" — a minimal pi session through microcall.ts; works
+ *              with any provider pi can use, including ones that only accept
+ *              pi's own traffic. "normal" (or "direct") — a plain
+ *              OpenAI-compatible POST to the provider's endpoint: faster, no
+ *              session; the provider needs an OpenAI-compatible API.
+ *   embedding  "provider/model" for /embeddings; "" or false = keyword search.
+ *
+ * Providers resolve from pi's own models.json / auth.json (providers.ts): no
+ * URL or key is repeated here. Any other key of the "memory" section (recall,
+ * journal, capture, dir, or full llm / embed objects) may also go here.
+ */
+export interface BookFile extends Partial<Omit<MemoryConfig, "llm" | "embed" | "warnings">> {
+	model?: string;
+	mode?: "microcall" | "normal" | "direct";
+	embedding?: string | false | Partial<EmbedConfig>;
+	llm?: Partial<LlmConfig>;
+	embed?: Partial<EmbedConfig>;
+}
+
+function readJson(file: string): Record<string, any> | undefined {
+	try {
+		return JSON.parse(fs.readFileSync(file, "utf-8"));
+	} catch {
+		return undefined;
+	}
+}
+
+/** pi-book.json's short keys → the "memory" section shape. Problems become warnings. */
+function fromBookFile(book: BookFile, agentDir: string, warnings: string[]): Partial<MemoryConfig> {
+	const { model, mode, embedding, ...rest } = book;
+	const out = { ...rest } as Partial<MemoryConfig>;
+
+	if (model !== undefined || mode !== undefined) {
+		const direct = mode === "normal" || mode === "direct";
+		if (mode !== undefined && !direct && mode !== "microcall")
+			warnings.push(`pi-book.json: unknown mode "${mode}" — using microcall`);
+		const ref = model ? splitModelRef(model) : undefined;
+		if (model && !ref) warnings.push(`pi-book.json: "model" must be "provider/model", not "${model}"`);
+		if (direct && ref) {
+			const ep = resolveProvider(agentDir, ref[0]);
+			if (!ep.baseUrl) {
+				warnings.push(`pi-book.json: provider "${ref[0]}" has no baseUrl in models.json — using microcall`);
+			} else if (ep.api && !ep.api.startsWith("openai")) {
+				warnings.push(`pi-book.json: provider "${ref[0]}" speaks ${ep.api}, normal mode needs an OpenAI-compatible API — using microcall`);
+			} else {
+				out.llm = { ...book.llm, mode: "raw", baseUrl: ep.baseUrl, model: ref[1], ...(ep.apiKey ? { apiKey: ep.apiKey } : {}) } as LlmConfig;
+			}
+		} else if (direct) {
+			warnings.push('pi-book.json: normal mode needs "model": "provider/model" — using microcall');
+		}
+		out.llm ??= { ...book.llm, mode: "pi", ...(ref ? { model } : {}) } as LlmConfig;
+	}
+
+	if (embedding === "" || embedding === false) {
+		out.embed = { ...book.embed, url: "" } as EmbedConfig;
+	} else if (typeof embedding === "string") {
+		const ref = splitModelRef(embedding);
+		const ep = ref ? resolveProvider(agentDir, ref[0]) : undefined;
+		if (!ref) warnings.push(`pi-book.json: "embedding" must be "provider/model", not "${embedding}"`);
+		else if (!ep?.baseUrl) warnings.push(`pi-book.json: provider "${ref[0]}" has no baseUrl in models.json — embeddings off`);
+		out.embed = ref && ep?.baseUrl
+			? ({ ...book.embed, url: ep.baseUrl, model: ref[1], ...(ep.apiKey ? { apiKey: ep.apiKey } : {}) } as EmbedConfig)
+			: ({ ...book.embed, url: "" } as EmbedConfig);
+	} else if (embedding && typeof embedding === "object") {
+		out.embed = { ...book.embed, ...embedding } as EmbedConfig;
+	}
+	return out;
+}
+
+/**
+ * An embed object's key without copying it: a literal `apiKey`, else the env
+ * var `apiKeyEnv`, else the key pi keeps for provider `apiKeyFrom`.
+ */
+function resolveEmbedKey(embed: EmbedConfig, agentDir: string): string | undefined {
+	if (embed.apiKey) return embed.apiKey;
+	if (embed.apiKeyEnv && process.env[embed.apiKeyEnv]) return process.env[embed.apiKeyEnv];
+	return embed.apiKeyFrom ? resolveProvider(agentDir, embed.apiKeyFrom).apiKey : undefined;
+}
+
+/**
+ * Defaults, then model-state.json "memory" (older home of these settings,
+ * still read), then agent/pi-book.json — later wins, key by key.
+ * PI_MEMORY_CONFIG points at another JSON file with a "memory" section (and
+ * then pi-book.json is not read), and PI_MEMORY_DIR moves the book — both for
+ * tests and the benchmark.
  */
 export function loadConfig(agentDir: string): MemoryConfig {
-	let user: Partial<MemoryConfig> = {};
-	const file = process.env.PI_MEMORY_CONFIG || path.join(agentDir, "model-state.json");
-	try {
-		user = JSON.parse(fs.readFileSync(file, "utf-8"))?.memory ?? {};
-	} catch {
-		// No file or no section: defaults.
-	}
+	const warnings: string[] = [];
+	const isolated = !!process.env.PI_MEMORY_CONFIG;
+	const legacy: Partial<MemoryConfig> =
+		readJson(process.env.PI_MEMORY_CONFIG || path.join(agentDir, "model-state.json"))?.memory ?? {};
+	const book = isolated ? undefined : readJson(path.join(agentDir, "pi-book.json"));
+	const user: Partial<MemoryConfig> = { ...legacy, ...(book ? fromBookFile(book as BookFile, agentDir, warnings) : {}) };
 	const dir = expandHome(process.env.PI_MEMORY_DIR || user.dir || path.join(agentDir, "book"));
+	const embed = { ...DEFAULTS.embed, ...user.embed } as EmbedConfig;
+	const apiKey = resolveEmbedKey(embed, agentDir);
 	return {
 		dir,
 		llm: { ...DEFAULTS.llm, ...user.llm } as LlmConfig,
-		embed: { ...DEFAULTS.embed, ...user.embed },
+		embed: apiKey ? { ...embed, apiKey } : embed,
 		recall: { ...DEFAULTS.recall, ...user.recall },
 		capture: user.capture === "manual" ? "manual" : "auto",
 		journal: { ...DEFAULTS.journal, ...user.journal },
+		...(warnings.length ? { warnings } : {}),
 	};
 }
 

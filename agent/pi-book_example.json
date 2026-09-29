@@ -1,0 +1,18 @@
+{
+  "model": "<provider>/<cheap-model>",
+  "mode": "microcall",
+  "embedding": "<provider>/<embedding-model>",
+  "recall": {
+    "enabled": true,
+    "budgetTokens": 400,
+    "maxChars": 2800,
+    "minCos": 0.3
+  },
+  "capture": "auto",
+  "journal": {
+    "enabled": true,
+    "ttlDays": 30,
+    "recall": 2,
+    "maxBullets": 8
+  }
+}

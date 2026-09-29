@@ -14,7 +14,9 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | `extensions/`, `themes/` (YAML + hand-written JSON) | local extensions, themes | yes |
 | `subagents.json` | per-extension config | yes |
 | `model-state_example.json` | the shape of `model-state.json` | yes |
-| `model-state.json` | our extensions' model config: `micro` chain, `memory` settings | **no** — per machine |
+| `model-state.json` | our extensions' model config: the `micro` chain | **no** — per machine |
+| `pi-book_example.json` | the shape of `pi-book.json` | yes |
+| `pi-book.json` | pi-book's models (`model`, `mode`, `embedding`) and settings | **no** — per machine; see [memory.md](memory.md#configuration) |
 | `.env` | per-machine env and secrets | **no** |
 | `auth.json`, `models-store.json` | OAuth tokens | **no** |
 | `models.json` | providers and API keys | **no** |
@@ -37,15 +39,17 @@ it in its private `settings.json` as `defaultProvider` / `defaultModel`, with
   "micro": {
     "model": "opencode-go/deepseek-v4.1-flash",
     "fallbacks": ["opencode-go/mimo-v2.6-flash"]
-  },
-  "memory": { "llm": { "mode": "pi" } }
+  }
 }
 ```
+
+pi-book's models moved to their own file, `pi-book.json`; a `"memory"` section
+here is still read (and `pi-book.json` wins).
 
 | Section | Read by | Doc |
 |---|---|---|
 | `micro` | `microcall.ts` | [microcall.md](extensions/microcall.md) |
-| `memory` | `pi-book/` | [memory.md](memory.md#configuration) |
+| `memory` | `pi-book/` (prefer `pi-book.json`) | [memory.md](memory.md#configuration) |
 
 ## pi.env and .env
 

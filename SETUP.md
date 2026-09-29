@@ -134,7 +134,7 @@ pi creates most of this on first run. What matters:
 | `settings.shared.json`                 | Shared settings: packages, tools, theme    | Yes (step 4)  |
 | `settings.json`                        | pi's live settings: shared ones merged in, plus toggles and model picks | **No** (per machine; step 4) |
 | `mcp-adapter.json`                     | MCP server definitions (pi-mcp-adapter)    | **No** (yours; suggestions in step 5) |
-| `model-state.json`, `.env`             | memory/micro models; per-machine env and secrets | **No** (per machine) |
+| `model-state.json`, `pi-book.json`, `.env` | micro models; pi-book's models; per-machine env and secrets | **No** (per machine) |
 | `book/`                                | pi-book's notes: private (step 8)            | **No** (private; never synced) |
 | `pi.env`                               | Shared env switches                        | Yes (step 4b) |
 | `npm/`                                 | pi's package install tree                  | **No** (rebuilt by `setup.sh`) |
@@ -606,8 +606,21 @@ stored — they stay searchable in the archive.
   captures), `/memory search <q>` (ranks), `/memory reindex`, `/memory tidy`
   (merges duplicates and drops stale notes, one chapter at a time).
 
-**Models** go in `model-state.json` `"memory"` (per machine; see
-`model-state_example.json`). Everything has a default:
+**Models** go in `agent/pi-book.json` (per machine; see `pi-book_example.json`
+and [docs/memory.md](docs/memory.md#configuration)):
+
+```json
+{
+  "model": "litellm/GLM-5.3-Flash",
+  "mode": "microcall",
+  "embedding": "litellm/Qwen3-Embedding-8B"
+}
+```
+
+`mode` is `"microcall"` (a pi session, any provider) or `"normal"` (a direct
+OpenAI-compatible call); providers resolve from `models.json` / `auth.json`.
+The long form below also works there (or in `model-state.json` `"memory"`, the
+older home). Everything has a default:
 
 ```json
 "memory": {

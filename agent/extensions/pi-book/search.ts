@@ -21,7 +21,12 @@ export interface EmbedConfig {
 	/** OpenAI-compatible base URL, e.g. http://127.0.0.1:8090/v1. Empty disables vectors. */
 	url: string;
 	model: string;
+	/** A literal key. Prefer apiKeyFrom / apiKeyEnv, so the key is not copied here. */
 	apiKey?: string;
+	/** Env var holding the key. */
+	apiKeyEnv?: string;
+	/** A pi provider name: use the key pi keeps for it in auth.json (e.g. "litellm"). */
+	apiKeyFrom?: string;
 	/** Prepended to queries / documents; EmbeddingGemma and Qwen3-Embedding want task prompts. */
 	queryPrefix?: string;
 	docPrefix?: string;

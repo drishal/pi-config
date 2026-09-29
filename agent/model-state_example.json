@@ -4,41 +4,5 @@
     "fallbacks": [
       "<provider>/<another-model>"
     ]
-  },
-  "memory": {
-    "llm": {
-      "mode": "pi",
-      "model": "<provider>/<cheap-model> (optional: defaults to the micro chain)"
-    },
-    "embed": {
-      "url": "http://127.0.0.1:8090/v1",
-      "model": "<embedding-model>"
-    },
-    "recall": {
-      "enabled": true,
-      "budgetTokens": 400,
-      "maxChars": 2800,
-      "minCos": 0.3
-    },
-    "capture": "auto",
-    "journal": {
-      "enabled": true,
-      "ttlDays": 30,
-      "recall": 2,
-      "maxBullets": 8
-    }
-  },
-  "memoryRawExample": {
-    "llm": {
-      "mode": "raw",
-      "baseUrl": "http://127.0.0.1:8081/v1",
-      "model": "<model-id>",
-      "apiKeyEnv": "<ENV_VAR, optional>",
-      "extraBody": {
-        "chat_template_kwargs": {
-          "enable_thinking": false
-        }
-      }
-    }
   }
 }
