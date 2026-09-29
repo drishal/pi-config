@@ -47,6 +47,8 @@
  *   NEAT_RENDER_PULSE=0  static bullet on running rows instead of a pulse
  *   NEAT_RENDER_COMMENTS=0  keep a bash command's leading `# comment`
  *                        lines inline instead of on a dim line above the call
+ *   NEAT_RENDER_CTRL_BACKSPACE=0  leave Ctrl+Backspace alone (default: it
+ *                        deletes the previous word, see ctrlBackspaceInput)
  *   NEAT_RENDER_HIGHLIGHT=0  ctrl+o shows a bash command in pi's single
  *                        colour instead of syntax-highlighted
  *   NEAT_RENDER_FRAME=0  ctrl+o shows pi's tinted box instead of the
@@ -59,6 +61,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { execFileSync } from "node:child_process";
 import { AssistantMessageComponent, highlightCode, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
@@ -1214,6 +1217,44 @@ function foldThinkingFences(md: string): string {
 	return elided ? out.join("\n") : md;
 }
 
+/* ── Ctrl+Backspace deletes a word ─────────────────────────────────────── */
+
+/**
+ * Make Ctrl+Backspace delete the previous word, like everywhere else.
+ *
+ * pi binds "delete word backward" to Ctrl+W and Alt+Backspace only, and in most
+ * setups never even sees Ctrl+Backspace: without tmux `extended-keys` (or the
+ * kitty keyboard protocol) a terminal like foot sends it as a raw 0x08, which
+ * pi-tui reads as plain Backspace everywhere but Windows Terminal — so it
+ * deleted one character. This rewrites it to Alt+Backspace (`ESC DEL`) before
+ * the editor sees it:
+ *
+ *   - raw 0x08 (also a key-repeat burst of them) — unless this terminal's erase
+ *     key IS ^H, where 0x08 is plain Backspace (checked once with `stty -a`);
+ *   - explicit Ctrl+Backspace sequences — kitty CSI-u `ESC[127;5u` and
+ *     modifyOtherKeys `ESC[27;5;127~`, what tmux sends with extended-keys on —
+ *     which pi parses as ctrl+backspace but binds to nothing in the editor.
+ *
+ * Ctrl+H is the same byte as a raw 0x08, so it deletes a word too.
+ * NEAT_RENDER_CTRL_BACKSPACE=0 turns this off.
+ */
+function ctrlBackspaceInput(): (data: string) => { data: string } | undefined {
+	let rawIsPlainBackspace = false;
+	try {
+		const tty = execFileSync("stty", ["-a"], { stdio: ["inherit", "pipe", "ignore"], encoding: "utf-8" });
+		rawIsPlainBackspace = /\berase = \^H\b/.test(tty);
+	} catch {
+		// No tty to ask (pi -p): nothing reaches the editor anyway.
+	}
+	const ALT_BACKSPACE = "\x1b\x7f";
+	const EXPLICIT = /^\x1b\[(?:127;5(?::1)?u|27;5;127~)$/;
+	return (data) => {
+		if (EXPLICIT.test(data)) return { data: ALT_BACKSPACE };
+		if (!rawIsPlainBackspace && /^\x08+$/.test(data)) return { data: ALT_BACKSPACE.repeat(data.length) };
+		return undefined;
+	};
+}
+
 export default function (pi: ExtensionAPI) {
 	if (off("NEAT_RENDER")) return;
 
@@ -1229,14 +1270,21 @@ export default function (pi: ExtensionAPI) {
 	// Grouping composes the row renderer, so it only makes sense with it.
 	const group = rows ? installGrouping() : undefined;
 
+	// Ctrl+Backspace → delete the previous word (see ctrlBackspaceInput).
+	let unlistenInput: (() => void) | undefined;
+	const ctrlBackspace = off("NEAT_RENDER_CTRL_BACKSPACE") ? undefined : ctrlBackspaceInput();
+
 	pi.on("session_start", (_event, ctx) => {
 		state.theme = ctx.ui.theme as unknown as ThemeLike;
+		unlistenInput?.();
+		unlistenInput = ctrlBackspace && ctx.hasUI ? ctx.ui.onTerminalInput(ctrlBackspace) : undefined;
 	});
 
 	let released = false;
 	pi.on("session_shutdown", () => {
 		if (released) return;
 		released = true;
+		unlistenInput?.();
 		clearPulses();
 		uninstall(group, GROUP_PATCH);
 		uninstall(rows, ROW_PATCH);

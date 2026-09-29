@@ -93,12 +93,18 @@ tool, including those of other extensions.
   title is a bold opening line or the first sentence
 - Ctrl+O: an omp-style frame — syntax-highlighted command, `Output` divider,
   status in the bottom border
+- Ctrl+Backspace deletes the previous word. pi binds that to Ctrl+W /
+  Alt+Backspace only, and without tmux `extended-keys` a terminal like foot
+  sends Ctrl+Backspace as a raw `0x08` that pi reads as plain Backspace; both
+  the raw byte and the explicit CSI-u / modifyOtherKeys forms are rewritten to
+  Alt+Backspace (skipped where `stty` says the erase key is `^H`)
 
 Env switches (all default on unless noted): `NEAT_RENDER=0` (off),
 `NEAT_RENDER_CARD`, `NEAT_RENDER_ROWS`, `NEAT_RENDER_SPLIT`,
 `NEAT_RENDER_BATCH=1` / `NEAT_RENDER_RULES=1` (restore batch headers / rules),
 `NEAT_RENDER_PULSE`, `NEAT_RENDER_COMMENTS`, `NEAT_RENDER_HIGHLIGHT`,
 `NEAT_RENDER_FRAME`, `NEAT_RENDER_FOLD_THINKING`, `NEAT_RENDER_THINKING`,
+`NEAT_RENDER_CTRL_BACKSPACE`,
 `NEAT_RENDER_INSET=n`.
 Do not combine with other extensions that patch the same components
 (`pi-tool-call-markers`, `pi-content-layout`, `pi-cc-extensions`).
