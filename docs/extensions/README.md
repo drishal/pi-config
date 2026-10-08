@@ -22,6 +22,7 @@ Packages are listed in [SETUP.md](../../SETUP.md) step 6.
 | [`strip-append-system.ts`](#strip-append-systemts) | keeps package-written guides out of the system prompt |
 | [`base16-theme.ts`](#base16-themets) | base16/base24 YAML schemes as pi themes |
 | [`herdr-agent-state.ts`](#herdr-agent-statets) | agent state for the herdr desktop integration |
+| [`rewind-to.ts`](#rewind-tots) | `/rewind-to [n]`: back to just before an earlier prompt, in place |
 
 ## 00-env.ts
 
@@ -192,3 +193,17 @@ top-level `accent:` line. It never overwrites a hand-written or symlinked theme.
 Installed and overwritten by herdr's integration: reports the agent's state to
 the herdr desktop app over its socket when `HERDR_ENV=1`. Do not edit it; put
 custom hooks beside it.
+
+## rewind-to.ts
+
+`/rewind-to` goes back to just before an earlier prompt of this session, in
+place — what `/tree` does when you pick a user message, without the tree. The
+prompt comes back in the editor to change and send again; what followed stays
+in the session as a side branch, so `/tree` can still reach it. `/rewind-to <n>`
+skips the list and goes to the nth prompt of the current branch (1 is the
+first). Files are not touched.
+
+Agent Web UI's Edit and Retry use it over RPC (pi's RPC has `fork`, which starts
+a new session, but no in-place move), and load their own copy with `-e`; when
+both copies load, the second does nothing. It imports nothing, so the same file
+works in oh-my-pi.
