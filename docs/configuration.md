@@ -93,25 +93,6 @@ The last applied shared file is kept in `agent/.settings.shared.applied.json`.
 pi ignores keys it does not know, so extensions keep their settings here too:
 `statusline` — see [extensions](extensions/README.md#statuslinets).
 
-## Compaction cap (per machine)
-
-pi compacts when `context > contextWindow − reserveTokens`. On a 1M-token
-model with the shared 45k reserve that is ~955k — long after quality drops
-(DeepSeek V4 retrieves reliably to ~128k and holds up to ~256k; every model in
-Chroma's context-rot study degrades steadily with length). The shared package
-`pi-compaction-control` lowers a model's effective window in memory so pi's own
-trigger fires earlier, mid-run included. What to cap depends on the providers a
-machine has, so the setting lives in that machine's private `settings.json`:
-
-```json
-"contextCap": { "cap": 245000, "matchPatterns": ["*"], "notify": false }
-```
-
-With the 45k reserve this compacts every large-window model at **200k** and
-leaves models with windows of 245k or less alone. `models` sets exact caps for
-single model ids; without `contextCap` the package does nothing. The footer and
-`/context` show the capped window (`/245k`).
-
 ## Models and providers
 
 - **OpenCode Go** (built into pi) is the main provider on the reference
