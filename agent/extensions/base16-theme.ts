@@ -113,6 +113,32 @@ const mix = (a: string, b: string, t: number) => {
 	return hex(rgb(a).map((x, i) => x + (y[i] - x) * t));
 };
 
+/** WCAG relative luminance and contrast ratio. */
+const luminance = (h: string) => {
+	const [r, g, b] = rgb(h).map((v) => {
+		const c = v / 255;
+		return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+	});
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a: string, b: string) => {
+	const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+	return (hi + 0.05) / (lo + 0.05);
+};
+/**
+ * Pull `color` toward `toward` until it reaches `min` contrast on `bg`. Scheme
+ * slots like base03/base04 are chosen for syntax comments or panels, and on
+ * schemes such as Catppuccin they are far too dark to read as text (base04 is
+ * 2.5:1 there). A colour that already passes is returned unchanged.
+ */
+function readable(color: string, bg: string, toward: string, min: number): string {
+	for (let t = 0; t <= 1.0001; t += 0.02) {
+		const c = mix(color, toward, t);
+		if (contrast(c, bg) >= min) return c;
+	}
+	return toward;
+}
+
 function buildVars(pal: Palette, accentKey: string): Record<string, string> {
 	const b00 = pal.base00;
 	const b05 = pal.base05;
@@ -150,8 +176,9 @@ function buildVars(pal: Palette, accentKey: string): Record<string, string> {
 		orange: g("base09", g("base0a", b05)),
 		// ink
 		text: b05,
-		muted: b04,
-		dim: b03,
+		// secondary text (help, paths, hints, tool output): at least 4.5:1 on the ground
+		muted: readable(b04, b00, b05, 4.5),
+		dim: readable(b03, b00, b05, 3),
 		// message / tool grounds: base16 has no tinted backgrounds, so these are
 		// the base ground pulled a little toward the status hue.
 		selectedBg: b02,
