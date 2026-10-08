@@ -395,11 +395,6 @@ What they are:
 - `pi-simplify` — reviews the **local** working diff for clarity and
   maintainability. Complements `pi-mono-review` rather than overlapping it
   (remote PR vs local diff).
-- `pi-compaction-control` — caps a model's effective context window in memory,
-  so pi's own compaction trigger (`window − reserveTokens`) fires earlier on
-  1M-token models, even mid-run. It does nothing until configured, and the cap
-  is **per machine**: set `contextCap` in your private `settings.json` for the
-  providers you use (see [docs/configuration.md](docs/configuration.md#compaction-cap-per-machine)).
 - `pi-x-search` — searches X with verbatim post quotes and resolved URLs.
   Needs xAI auth (`/login` → xAI, or `XAI_API_KEY`). Note it **searches**;
   it cannot fetch a specific X URL — use obscura for that.
