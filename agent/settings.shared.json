@@ -8,13 +8,12 @@
     "npm:@vanillagreen/pi-background-tasks",
     "npm:pi-context-view",
     "npm:pi-hashline-edit-pro",
-    "npm:pi-lens",
-    "npm:pi-mcp-adapter",
+    "npm:pi-diet-lsp",
     "npm:pi-mono-review",
     "npm:pi-simplify",
     "npm:pi-web-access",
-    "npm:pi-x-search",
-    "npm:pi-subagents"
+    "npm:pi-subagents",
+    "npm:pi-tern"
   ],
   "defaultTools": [
     "read",
@@ -30,9 +29,6 @@
   },
   "markdown": {
     "mermaid": "final"
-  },
-  "statusline": {
-    "hide": []
   },
   "subagents": {
     "defaultModel": "litellm/GLM-5.3-Flash",
@@ -108,5 +104,8 @@
         }
       }
     }
+  },
+  "statusline": {
+    "hide": []
   }
 }
