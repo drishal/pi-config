@@ -30,24 +30,17 @@
  * re-registers, and reports what changed. Use it after adding/removing
  * deployments on the gateway without restarting pi.
  *
- * ── Precedence (models.json wins) ──────────────────────────────────────────
- * This extension owns the model *list*; per-model *field* overrides live in
- * ~/.pi/agent/models.json under `providers.litellm.modelOverrides`. Per the pi
- * docs, `modelOverrides` are applied on top of extension-registered models, so
- * anything you set there (contextWindow, maxTokens, reasoning, compat, …)
- * takes priority over the auto-discovered value.
+ * ── What the extension owns ─────────────────────────────────────────────────
+ * Every chat model gets `reasoning: true`, a `thinkingLevelMap` covering
+ * off..max, and `supportsReasoningEffort: true` in compat. That means the
+ * full /thinking picker is always offered and `reasoning_effort` reaches the
+ * gateway; per pi-ai, off is never sent as an effort value and xhigh/max
+ * only render when mapped explicitly.
  *
- *   // ~/.pi/agent/models.json
- *   {
- *     "providers": {
- *       "litellm": {
- *         "modelOverrides": {
- *           "<model-id>": { "maxTokens": 20000 },
- *           "<other-model-id>": { "contextWindow": 131072 }
- *         }
- *       }
- *     }
- *   }
+ * models.json `modelOverrides` remains the per-model escape hatch and always
+ * wins last: set `reasoning: false` or a narrower `thinkingLevelMap` there
+ * for a specific deployment if the gateway starts flagging one. The
+ * extension is intentionally generic; it does not read modelOverrides.
  *
  * Do NOT put a `models` array under `litellm` in models.json — that would
  * conflict with this extension's registered list. Use `modelOverrides` only.
@@ -187,14 +180,6 @@ interface ModelInfoEntry {
 	litellm_params: {
 		model?: string;
 		custom_llm_provider?: string;
-		reasoning_effort?: string | null;
-		extra_body?: {
-			chat_template_kwargs?: {
-				thinking?: boolean | null;
-				enable_thinking?: boolean | null;
-				reasoning_effort?: string | null;
-			} | null;
-		} | null;
 	};
 	model_info: {
 		max_model_len?: number | null;
@@ -224,7 +209,7 @@ type DiscoveredModel = {
 	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
 	contextWindow: number;
 	maxTokens: number;
-	compat: { maxTokensField: "max_tokens" };
+	compat: { maxTokensField: "max_tokens"; supportsReasoningEffort: true };
 };
 
 type DiscoveryResult = {
@@ -297,16 +282,24 @@ function excludePatterns(): RegExp[] {
 }
 
 /*
- * Full thinking-level surface exposed to the /thinking picker.
+ * Full thinking-level surface exposed to the /thinking picker (low..max).
  *
- * Per pi docs (docs/models.md → Thinking Level Map): a reasoning model shows
- * off..high by default, but "xhigh" and "max" ONLY appear when the model
- * declares them in thinkingLevelMap (see getSupportedThinkingLevels in
- * pi-ai: xhigh/max are hidden unless mapped explicitly). The gateway is an
- * OpenAI-compatible router that forwards reasoning_effort verbatim, so each
- * level maps to its own name — including the OpenAI-style "xhigh" effort.
+ * Two facts drive the map contents (pi-ai, openai-completions.js):
+ *
+ *   - `getSupportedThinkingLevels` shows "off" unconditionally when
+/*
+ * Full thinking-level surface exposed to the /thinking picker (off..max).
+ *
+ * Reasoning is forced on for every chat model, so "off"/"minimal" need
+ * explicit map entries to appear in the picker at all. pi never sends "off"
+ * as an effort value (it maps to undefined upstream), but the map entry is
+ * what makes the picker render it.
+ *
+ * Per pi docs (docs/models.md → Thinking Level Map) and pi-ai's
+ * getSupportedThinkingLevels: xhigh/max only appear when mapped.
  */
 const FULL_THINKING_LEVEL_MAP = {
+	off: "off",
 	minimal: "minimal",
 	low: "low",
 	medium: "medium",
@@ -314,38 +307,8 @@ const FULL_THINKING_LEVEL_MAP = {
 	xhigh: "xhigh",
 	max: "max",
 } as const;
-
-/*
- * Capabilities come from the gateway, never from the model name.
- *
- * This file used to carry regex lists of model families that reason or accept
- * images. Those were guesses that went stale whenever a deployment changed,
- * and they encoded which models this particular gateway runs — the one thing
- * that made the file unshareable. /v1/model/info already answers both
- * questions, so the lists are gone.
- *
- * Where the gateway is silent the answer is "no", and the fix belongs in one
- * of two places, both outside this file:
- *
- *   - the gateway, by setting `supports_vision` or `enable_thinking` on the
- *     deployment — which fixes it for every client, not just pi; or
- *   - ~/.pi/agent/models.json under `providers.<name>.modelOverrides`, which
- *     wins over anything registered here (see the header).
- */
-
 function detectVision(entry: ModelInfoEntry): boolean {
 	return entry.model_info?.supports_vision === true;
-}
-
-function detectReasoning(entry: ModelInfoEntry): boolean {
-	const kwargs = entry.litellm_params?.extra_body?.chat_template_kwargs;
-	// Either spelling of the thinking toggle counts as an opt-in, and a
-	// configured reasoning_effort implies the deployment accepts one.
-	if (kwargs?.thinking === true || kwargs?.enable_thinking === true) return true;
-	return (
-		entry.litellm_params?.reasoning_effort != null ||
-		kwargs?.reasoning_effort != null
-	);
 }
 
 /*
@@ -364,11 +327,20 @@ function isChatModel(entry: ModelInfoEntry): boolean {
 	return !NON_CHAT_PATTERNS.some((re) => re.test(name) || re.test(underlying));
 }
 
+/*
+ * Context window: take `max_model_len` when the gateway sets it, otherwise the
+ * fallback constant. No per-deployment name overrides live here — those belong
+ * in models.json `modelOverrides`, which is the documented late-winner.
+ */
+function contextWindowFor(entry: ModelInfoEntry): number {
+	const len = entry.model_info?.max_model_len;
+	return typeof len === "number" && len > 0 ? len : FALLBACK_CONTEXT_WINDOW;
+}
+
 function toModelConfig(entry: ModelInfoEntry): DiscoveredModel {
 	const id = entry.model_name;
-	const contextWindow =
-		entry.model_info?.max_model_len ?? FALLBACK_CONTEXT_WINDOW;
-	const reasoning = detectReasoning(entry);
+	const contextWindow = contextWindowFor(entry);
+	const reasoning = true;
 	// The gateway exposes no max_output_tokens; cap at ~1/4 of the window.
 	// Override per-model via models.json `modelOverrides` when needed.
 	const maxTokens = Math.min(DEFAULT_MAX_TOKENS, Math.floor(contextWindow / 4));
@@ -385,6 +357,9 @@ function toModelConfig(entry: ModelInfoEntry): DiscoveredModel {
 		compat: {
 			// vLLM/litellm uses the OpenAI field name, not max_completion_tokens.
 			maxTokensField: "max_tokens" as const,
+			// The gateway forwards reasoning_effort verbatim to the backend; pi's
+			// own URL auto-detect stops on unknown/base URLs, so say it here.
+			supportsReasoningEffort: true,
 		},
 	};
 }
