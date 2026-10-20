@@ -776,27 +776,18 @@ export default function skillManageExtension(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "skill_manage",
 		label: "Manage Skill",
-		description: `Manage skills (create, update, delete). Skills are your procedural memory — reusable approaches for recurring task types. New skills are written to ${GLOBAL_SKILLS_DIR} (global) by default; existing skills can be modified wherever they live.
+		description: `Manage skills — your procedural memory for recurring task types. New skills go to ${GLOBAL_SKILLS_DIR}; existing ones are edited where they live.
 
-Actions: create (full SKILL.md + optional category), patch (old_string/new_string — preferred for fixes), edit (full SKILL.md rewrite — major overhauls only), delete (with optional absorbed_into), write_file, remove_file.
+Actions: create (full SKILL.md, optional category) · patch (old_string/new_string; preferred for fixes) · edit (full rewrite; major overhauls only) · delete (absorbed_into: the umbrella it merged into, or "" to prune; recorded in .skill_archives.json) · write_file / remove_file (supporting files).
 
-On delete, pass absorbed_into="<umbrella>" when merging this skill's content into another (the target must already exist — create/patch it first), or absorbed_into="" when pruning with no forwarding target. The intent is recorded in ~/.pi/agent/skills/.skill_archives.json.
-
-Create only when the user explicitly asked for a new skill, or after asking for and receiving confirmation. Do not create new skills for short troubleshooting turns or one-offs.
-Update when: instructions are stale/wrong, OS-specific failures appeared, or missing steps/pitfalls were found during use. If you loaded a skill and hit issues it did not cover, patch it immediately.
-
-After difficult/iterative tasks, offer to save as a skill. Prefer patching existing skills or adding references under an umbrella. Confirm with the user before creating or deleting.
-
-Good skills: a trigger-rich description in frontmatter, ordered steps with exact commands, a pitfalls section, and verification steps. Use the \`read\` tool on existing skills under ~/.pi/agent/skills/ to see format examples. The tool runs an efficiency check after every write and reports hard issues (invalid frontmatter, description too long, forbidden trigger-selection headings in the body); fix those and call patch/edit before reporting done.
-
-A SKILL.md's frontmatter \`name\` MUST match the \`name\` argument. Never create a skill whose name is a PR number, error string, feature codename, or 'fix-X-today' session artifact — name at the class level.`,
-		promptSnippet:
-			"Create, patch, or delete reusable skills (SKILL.md) for recurring workflows",
+- Create only when the user asked or confirmed; never for one-offs or short troubleshooting. Confirm before deleting.
+- Patch a loaded skill as soon as it proves wrong, stale or missing a step. After hard, iterative work, offer to save a skill; prefer patching, or a reference file under an existing umbrella.
+- A good skill: trigger-rich frontmatter description, ordered steps with exact commands, pitfalls, verification. Read skills under ~/.pi/agent/skills/ for examples.
+- Frontmatter \`name\` MUST match \`name\`. Name at the class level — never a PR number, error string, codename or 'fix-X-today'.
+- Every write runs an efficiency check; fix the issues it reports with patch/edit before reporting done.`,
+		promptSnippet: "Create, patch or delete reusable skills (SKILL.md)",
 		promptGuidelines: [
-			"Use skill_manage action='patch' to improve loaded/existing skills when they are wrong, stale, or missing a step.",
-			"Create new skills with skill_manage action='create' only when the user explicitly asked for a skill or after receiving confirmation.",
-			"Prefer skill_manage action='patch' or action='write_file' under an existing umbrella over creating a new skill directory.",
-			"When skill_manage is unavailable, prefer editing an existing skill over creating a new one with a similar name.",
+			"skill_manage: patch existing skills when wrong, stale or incomplete; prefer patch or write_file under an existing umbrella; create only on request or confirmation.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(
@@ -812,53 +803,53 @@ A SKILL.md's frontmatter \`name\` MUST match the \`name\` argument. Never create
 			),
 			name: Type.String({
 				description:
-					"Skill name (lowercase, hyphens, max 64 chars, kebab-case). Must match frontmatter 'name' for create/edit. Must name an existing skill for patch/edit/delete/write_file/remove_file.",
+					"Kebab-case, ≤64 chars. Matches frontmatter for create/edit; must exist for the other actions.",
 			}),
 			content: Type.Optional(
 				Type.String({
 					description:
-						"Full SKILL.md content (YAML frontmatter + markdown body). Required for 'create' and 'edit'. For 'edit', read the skill first with the `read` tool and provide the complete updated text.",
+						"create/edit: the full SKILL.md (frontmatter + body). For edit, read the skill first.",
 				}),
 			),
 			old_string: Type.Optional(
 				Type.String({
 					description:
-						"Text to find for 'patch'. Must be unique unless replace_all=true. Include enough surrounding context to ensure uniqueness.",
+						"patch: text to find; unique unless replace_all.",
 				}),
 			),
 			new_string: Type.Optional(
 				Type.String({
 					description:
-						"Replacement text for 'patch'. May be the empty string to delete the matched text.",
+						"patch: replacement; \"\" deletes the match.",
 				}),
 			),
 			replace_all: Type.Optional(
 				Type.Boolean({
 					description:
-						"For 'patch': replace all occurrences instead of requiring a unique match (default: false).",
+						"patch: replace every occurrence (default false).",
 				}),
 			),
 			category: Type.Optional(
 				Type.String({
 					description:
-						"Optional category for organizing the skill (e.g. 'devops', 'data-science'). Creates a subdirectory grouping. Only used with 'create'.",
+						"create: optional grouping subdirectory, e.g. 'devops'.",
 				}),
 			),
 			file_path: Type.Optional(
 				Type.String({
 					description:
-						"Supporting file path within the skill dir. For 'write_file'/'remove_file': required, must be under references/, templates/, scripts/, or assets/. For 'patch': optional, defaults to SKILL.md if omitted.",
+						"write_file/remove_file (required): a path under references/, templates/, scripts/ or assets/. patch: target file (default SKILL.md).",
 				}),
 			),
 			file_content: Type.Optional(
 				Type.String({
-					description: "Content for the file. Required for 'write_file'.",
+					description: "write_file: the file content.",
 				}),
 			),
 			absorbed_into: Type.Optional(
 				Type.String({
 					description:
-						"For 'delete' only — pass the umbrella skill name when this skill's content was merged into another (target must already exist, so create/patch it first), or pass the empty string when pruning with no forwarding target. Omitting is allowed but records no forwarding intent.",
+						"delete: the umbrella skill that absorbed this one (must exist already), or \"\" when pruning. Omit to record no intent.",
 				}),
 			),
 		}),
