@@ -3,9 +3,8 @@
  *
  * Renders three things:
  *
- *   ╭─π────────────────────────────────────────────╮
- *   │ In a batch, launch a few read/grep commands.  │
- *   ╰──────────────────────────────────────────────╯
+ *   > In a batch, launch a few read/grep commands.
+ *   ● I created ~/Desktop/models/files/ornith122b/download.sh. …
  *
  *   ● Batch 3/3 · succeeded · ctrl+o to inspect
  *     ├─ Read ../../AGENTS.md:1-12 · 14 lines
@@ -60,7 +59,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AssistantMessageComponent, highlightCode, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Container, Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 const CARD_PATCH = Symbol.for("dr.pi.neatRender.card.v1");
 const ROW_PATCH = Symbol.for("dr.pi.neatRender.row.v1");
@@ -621,7 +620,11 @@ function rowLines(row: ToolRow, theme: ThemeLike, width: number): string[] {
 	return out;
 }
 
-/* ── patch 1: user message card ────────────────────────────────────────── */
+/* ── patch 1: user message as a `>` quote ─────────────────────────────── */
+
+const OSC133_ZONE_START = "\x1b]133;A\x07";
+const OSC133_ZONE_END = "\x1b]133;B\x07";
+const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
 function installCard(): Patchable | undefined {
 	const proto = UserMessageComponent?.prototype as unknown as Patchable | undefined;
@@ -631,27 +634,30 @@ function installCard(): Patchable | undefined {
 	proto.render = function (width: number): string[] {
 		const theme = state.theme;
 		if (!theme || width < 12) return original.call(this, width);
+		// `text` is TS-private but a plain field at runtime.
+		const text = (this as unknown as { text?: unknown }).text;
+		if (typeof text !== "string" || !text.trim()) return original.call(this, width);
 
-		// pi's own box runs border to border: it paints userMessageBg over its
-		// whole width and keeps a column of padding inside that fill, so the
-		// text still has its margin. (An extra plain space on each side left an
-		// unpainted strip between the border and the fill.)
-		const inner = Math.max(1, width - 2);
-		const body = original.call(this, inner);
-		if (body.length === 0) return body;
-
-		const g = (s: string) => theme.fg("success", s);
-		const label = theme.fg("error", "π");
-		// "╭", "─", "π" and "╮" are one column each, so the fill is width-4.
-		// Getting this wrong by one wraps the line and drags the whole box askew.
-		const top = g("╭─") + label + g("─".repeat(Math.max(0, width - 4))) + g("╮");
-		const bottom = g("╰") + g("─".repeat(Math.max(0, width - 2))) + g("╯");
-
-		const middle = body.map((line) => {
-			const pad = Math.max(0, inner - visibleWidth(line));
-			return `${g("│")}${line}${theme.bg("userMessageBg", " ".repeat(pad))}${g("│")}`;
-		});
-		return [top, ...middle, bottom];
+		// Claude Code draws the prompt as a `>` quote: no border, no
+		// background fill. The fill is what kept breaking, so it is gone —
+		// the raw text is wrapped and quoted directly.
+		const mark = theme.fg("dim", ">");
+		const room = Math.max(8, width - 2);
+		const out: string[] = [];
+		for (const para of text.replace(/\n+$/, "").split("\n")) {
+			if (!para.trim()) {
+				out.push(mark);
+				continue;
+			}
+			wrapTextWithAnsi(para, room).forEach((line, i) => {
+				out.push(i === 0 ? `${mark} ${line}` : `  ${line}`);
+			});
+		}
+		if (out.length === 0) return original.call(this, width);
+		// Keep the shell-integration zone pi's own render emits.
+		out[0] = `${OSC133_ZONE_START}${out[0]}`;
+		out[out.length - 1] = `${out[out.length - 1]}${OSC133_ZONE_END}${OSC133_ZONE_FINAL}`;
+		return out;
 	} as RenderFn;
 
 	proto[CARD_PATCH] = original;
@@ -1125,12 +1131,56 @@ function installThinking(): ThinkingPatchable | undefined {
 		original.call(this, message, isStreaming);
 		try {
 			decorateThinking(this as AssistantInternals, message as { content?: ContentBlock[] });
+			decorateReply(this as AssistantInternals);
 		} catch {
 			/* keep pi's own rendering */
 		}
 	} as UpdateFn;
 	proto[THINK_PATCH] = original;
 	return proto;
+}
+
+/**
+ * Claude Code prefixes the assistant's reply text with a `●` bullet. pi
+ * renders each text block as a bare Markdown child, so wrap the first one:
+ * the bullet on the first line, continuation lines aligned under the text.
+ * Only the display changes; the child still renders its own content.
+ */
+class ReplyBullet {
+	private readonly body: Renderable;
+	constructor(body: Renderable) {
+		this.body = body;
+	}
+	render(width: number): string[] {
+		const lines = this.body.render(Math.max(8, width - 2));
+		if (lines.length === 0) return lines;
+		const dot = state.theme ? state.theme.fg("accent", "●") : "●";
+		return lines.map((l, i) => {
+			// Assistant Markdown carries pi's output pad; drop one column so
+			// the text starts where the bullet points, Claude-style.
+			const t = l.startsWith(" ") ? l.slice(1) : l;
+			return i === 0 ? `${dot} ${t}` : `  ${t}`;
+		});
+	}
+	invalidate(): void {
+		(this.body as { invalidate?(): void }).invalidate?.();
+	}
+}
+
+/**
+ * Wrap the first text block in a ReplyBullet. Thinking blocks are
+ * MouseRegions and tool rows render elsewhere, so the first Markdown child
+ * is the reply text. No text block, no bullet.
+ */
+function decorateReply(host: AssistantInternals): void {
+	const kids = (host.contentContainer as { children?: unknown[] } | undefined)?.children;
+	if (!Array.isArray(kids)) return;
+	for (let i = 0; i < kids.length; i++) {
+		if (kids[i] instanceof Markdown) {
+			kids[i] = new ReplyBullet(kids[i] as Renderable);
+			break;
+		}
+	}
 }
 
 function uninstallThinking(proto: ThinkingPatchable | undefined): void {
