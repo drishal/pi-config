@@ -9,7 +9,6 @@
     "npm:pi-context-view",
     "npm:pi-hashline-edit-pro",
     "npm:pi-lens",
-    "npm:pi-mcp-adapter",
     "npm:pi-mono-review",
     "npm:pi-simplify",
     "npm:pi-web-access",
@@ -33,80 +32,5 @@
   },
   "statusline": {
     "hide": []
-  },
-  "subagents": {
-    "defaultModel": "litellm/GLM-5.3-Flash",
-    "agentOverrides": {
-      "scout": {
-        "model": "litellm/GLM-5.3-Flash",
-        "thinking": "max"
-      },
-      "delegate": {
-        "model": "litellm/GLM-5.3-Flash",
-        "thinking": "max"
-      },
-      "worker": {
-        "model": "litellm/GLM5",
-        "thinking": "max"
-      },
-      "reviewer": {
-        "model": "litellm/GLM5",
-        "thinking": "max"
-      },
-      "oracle": {
-        "model": "litellm/DeepSeek",
-        "thinking": "max"
-      },
-      "researcher": {
-        "model": "litellm/GLM-5.3-Flash",
-        "thinking": "max"
-      },
-      "evidence-auditor": {
-        "model": "litellm/GLM5",
-        "thinking": "max"
-      }
-    },
-    "modelScope": {
-      "allow": [
-        "litellm/*"
-      ],
-      "agents": {
-        "scout": {
-          "allow": [
-            "litellm/GLM-5.3-Flash"
-          ]
-        },
-        "delegate": {
-          "allow": [
-            "litellm/GLM-5.3-Flash"
-          ]
-        },
-        "researcher": {
-          "allow": [
-            "litellm/GLM-5.3-Flash"
-          ]
-        },
-        "worker": {
-          "allow": [
-            "litellm/GLM5"
-          ]
-        },
-        "reviewer": {
-          "allow": [
-            "litellm/GLM5"
-          ]
-        },
-        "oracle": {
-          "allow": [
-            "litellm/DeepSeek"
-          ]
-        },
-        "evidence-auditor": {
-          "allow": [
-            "litellm/GLM5"
-          ]
-        }
-      }
-    }
   }
 }

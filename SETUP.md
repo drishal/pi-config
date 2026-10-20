@@ -18,7 +18,7 @@ in [docs/](docs/README.md).
 > (install pi, set up models) and the machine-specific items in step 9.
 >
 > **What keeps private state out.** The same directory is pi's live state —
-> sessions, memories, `auth.json`, `models.json`, `mcp-adapter.json`, caches, npm.
+> sessions, memories, `auth.json`, `models.json`, `mcp.json`, caches, npm.
 > Three layers keep it out of git: `.gitignore` is an **allowlist** (everything
 > is ignored unless listed, so new files pi creates stay private by default);
 > settings are **split** — the tracked `agent/settings.shared.json` holds the
@@ -133,13 +133,13 @@ pi creates most of this on first run. What matters:
 | `auth.json`, `models-store.json`       | OAuth tokens from `/login`                 | **No** (pi)   |
 | `settings.shared.json`                 | Shared settings: packages, tools, theme    | Yes (step 4)  |
 | `settings.json`                        | pi's live settings: shared ones merged in, plus toggles and model picks | **No** (per machine; step 4) |
-| `mcp-adapter.json`                     | MCP server definitions (pi-mcp-adapter)    | **No** (yours; suggestions in step 5) |
+| `mcp.json`                     | MCP server definitions (pi built-in)       | **No** (yours; suggestions in step 5) |
 | `model-state.json`, `pi-book.json`, `.env` | micro models; pi-book's models; per-machine env and secrets | **No** (per machine) |
 | `book/`                                | pi-book's notes: private (step 8)            | **No** (private; never synced) |
 | `pi.env`                               | Shared env switches                        | Yes (step 4b) |
 | `npm/`                                 | pi's package install tree                  | **No** (rebuilt by `setup.sh`) |
 | `extensions/`                          | Local TypeScript extensions                | Yes, except the machine-local ones (step 7) |
-| `skills/`                              | User-global skills (`SKILL.md` per dir)    | **No** (personal, like `mcp-adapter.json`; suggestions in step 7b) |
+| `skills/`                              | User-global skills (`SKILL.md` per dir)    | **No** (personal, like `mcp.json`; suggestions in step 7b) |
 | `themes/`                              | base16/base24 YAML (→ JSON via `base16-theme.ts`) or pi theme JSON | YAML + hand-written JSON only |
 | `subagents.json`                       | Per-extension config                       | Yes           |
 | `keybindings.json`                     | Key overrides: Ctrl+Backspace / Ctrl+H delete a word | Yes |
@@ -181,7 +181,6 @@ The shared file, as a starting point:
     "npm:@vanillagreen/pi-background-tasks",
     "npm:pi-hashline-edit-pro",
     "npm:pi-lens",
-    "npm:pi-mcp-adapter",
     "npm:pi-mono-ask-user-question",
     "npm:pi-mono-auto-fix",
     "npm:pi-mono-btw",
@@ -271,46 +270,57 @@ inherited) are reloaded from the files rather than treated as your overrides.
 `/env` lists what was loaded from where — names only, never values. This
 replaces setting these in a shell profile, so non-Nix machines get them too.
 
-## 5. MCP servers (`mcp-adapter.json`) — *suggestions, not a manifest*
+## 5. MCP servers (`mcp.json`) — *suggestions, not a manifest*
 
-> **`mcp-adapter.json` is deliberately not tracked in this repo** (it is off
-> the `.gitignore` allowlist and on the pre-commit never-list). Server entries routinely carry inline credentials — an
-> API token in `env`, a bearer in a URL — and which servers you want is a
-> per-machine choice. What follows is a menu to pick from, not a file to copy.
+> **`mcp.json` is deliberately not tracked in this repo** (it is off the
+> `.gitignore` allowlist and on the pre-commit never-list). Server entries
+> routinely carry inline credentials — an API token in `env`, a bearer in a URL
+> — and which servers you want is a per-machine choice. What follows is a menu
+> to pick from, not a file to copy.
 
-Write `~/.pi/agent/mcp-adapter.json` yourself. (pi-mcp-adapter 3.0 stopped
-reading `mcp.json`, which now belongs to pi's upcoming built-in MCP support; the
-format is unchanged, so an old `mcp.json` only needs renaming.) STDIO servers use `command` + `args`
-(+ optional `env`); HTTP servers use `url`. `lifecycle: "lazy"` spawns on first
-use (good for stateless clients); `"keep-alive"` keeps the process alive (for
-stateful daemons). The server list loads at session start — new entries need a
-pi restart (or `/reload`) to appear.
+Write `~/.pi/agent/mcp.json` yourself, or let `pi mcp add <name> -- <command> …`
+and `pi mcp remove <name>` edit it. STDIO servers use `command` + `args`, with
+optional `env` and `cwd`; HTTP servers use `url`, with optional `headers`.
+The list loads at session start, so a new entry needs a restart or `/reload`.
+
+**Exposure is the one real choice**, because it decides what the tools cost in
+context:
+
+| Exposure | Reaches the model as | Use for |
+|---|---|---|
+| `direct` | ordinary declared tools | small sets used often |
+| `deferred` | nothing, until `tool_search` loads a match | mid-size sets |
+| `codemode` (default) | nothing, callable from a `codemode` script | large sets, or calls worth filtering first |
+| `hidden` | nothing, registered | parking a server |
+
+pi activates `codemode` and `tool_search` itself when a server needs them, so
+neither belongs in `defaultTools`. `toolExposure` overrides the server's mode per
+tool, by exact name or pattern.
 
 ### Suggested servers
 
 Each is independently useful; take what you need.
 
-| Server | Type | Gives you | Needs |
-|---|---|---|---|
-| `context7` | STDIO (`npx`) | up-to-date library/framework docs | nothing |
-| `grep_app` | HTTP | search public GitHub code | nothing |
-| `nixos` | STDIO (`uvx`) | nixpkgs / NixOS options lookup | `uvx` |
-| `obscura` | STDIO | drive a real page — navigate, click, forms, JS render | `obscura` on `PATH` |
+| Server | Type | Exposure here | Gives you | Needs |
+|---|---|---|---|---|
+| `context7` | STDIO (`npx`) | direct | up-to-date library/framework docs | nothing |
+| `grep_app` | HTTP | direct | search public GitHub code | nothing |
+| `nixos` | STDIO (`uvx`) | direct | nixpkgs / NixOS options lookup | `uvx` |
+| `obscura` | STDIO | deferred | drive a real page — navigate, click, forms, JS render | `obscura` on `PATH` |
+| `playwright` | STDIO | deferred | full Playwright automation, 20+ tools | `playwright-mcp` on `PATH` |
 
 Web search is **not** on this list: `pi-web-access` (step 6) provides
 `web_search` / `fetch_content` as ordinary tools, with local SearXNG tried first.
 An MCP search server such as `argus` is redundant alongside it.
 
 > **Credentials belong in `env`, not inline where you can help it.** A token
-> written straight into `mcp-adapter.json` is why the file is untracked. Prefer
+> written straight into `mcp.json` is why the file is untracked. Prefer
 > `"API_TOKEN": "${API_TOKEN}"` env entries exported from your shell, or
 > keep the credential in the server's own config file.
 
-> **On `keep-alive` vs `lazy`.** Both appear in the prompt as a single
-> `mcp__<server>` namespace proxy — the underlying tools are *not* enumerated,
-> so the choice costs roughly one line either way. `keep-alive` keeps the
-> process warm (worth it for a stateful daemon); `lazy` spawns on first use.
-> Pick on startup latency, not on context.
+> **On `direct` vs `deferred`.** A direct tool costs its definition in every
+> request; a deferred one costs nothing until it is needed, but the model must
+> search for it first. Keep direct for the handful you reach for constantly.
 
 ```json
 {
@@ -318,34 +328,42 @@ An MCP search server such as `argus` is redundant alongside it.
     "context7": {
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp@latest"],
-      "lifecycle": "lazy"
+      "exposure": "direct",
+      "description": "Up-to-date library and framework documentation."
     },
     "grep_app": {
       "url": "https://mcp.grep.app",
-      "lifecycle": "lazy"
+      "exposure": "direct",
+      "description": "Search public GitHub code."
     },
     "obscura": {
       "command": "obscura",
       "args": ["mcp"],
-      "lifecycle": "keep-alive"
+      "exposure": "deferred",
+      "description": "Drive a real headless page."
     },
     "nixos": {
       "command": "uvx",
       "args": ["mcp-nixos"],
-      "lifecycle": "lazy"
+      "exposure": "direct",
+      "description": "NixOS packages, options and system queries."
     }
   }
 }
 ```
 
-**What each server does / what it needs:**
+With this exact shape, startup costs +4,167 tokens over `--no-mcp` (measured,
+cache included): 5 direct tool schemas plus the `mcp_servers` section. Leaving
+`playwright` on the `codemode` default instead adds another 2,625, because pi
+then auto-activates `codemode` and its own tool schema — more than the whole MCP
+surface costs. The adapter with the same five servers measured +4,721, so this
+native shape is also the cheaper one.
 
-| Server      | Type  | Needs                                                                                                                                      |
-| ----------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `context7`  | STDIO | Nothing (public npx package, library docs).                                                                                                |
-| `grep_app`  | HTTP  | Nothing (public, code search).                                                                                                             |
-| `obscura`   | STDIO | The `obscura` Rust binary on `PATH`. Headless browser / page render.                                                                       |
-| `nixos`     | STDIO | `uvx`. Query nixpkgs / NixOS options.                                                                                                      |
+`description` is one sentence the model sees in the system prompt's
+`mcp_servers` section; without it, pi uses the server's own instructions once it
+connects. `pi mcp list` connects every enabled server and prints its tools and
+mode; `/mcp` does the same inside a session, where you can also change exposure,
+sign in to OAuth servers, and reconnect.
 
 Memory is not an MCP server: it is the pi-book extension (step 8).
 
@@ -377,9 +395,6 @@ What they are:
 - `pi-lens` — real-time code feedback: LSP, linters, formatters,
   type-checking, structural analysis. Also ships four `pi-lens-*` skills.
   This is the closest thing here to an IDE wired into the agent.
-- `pi-mcp-adapter` — MCP integration (config merging, oauth, `/mcp-adapter` panel;
-  `/mcp` still works as a shortcut).
-  Everything in step 5 depends on it; remove it and all six servers go dark.
 - `pi-mono-ask-user-question` — structured multiple-choice questions instead
   of the model guessing.
 - `pi-mono-auto-fix` — runs language-appropriate fixers (eslint, black,
@@ -441,7 +456,7 @@ Skills are `SKILL.md` files. pi loads them from (in order) `.pi/skills/`,
 `.agents/skills/` (project, walking up parents), then `~/.pi/agent/skills/`
 and `~/.agents/skills/` (user-global).
 
-**Skills are personal — this repo ships none.** Like `mcp-adapter.json`, `skills/` is
+**Skills are personal — this repo ships none.** Like `mcp.json`, `skills/` is
 off the allowlist: every listed skill costs prompt tokens in every session, a
 skill that does not fit your work is a routing mistake waiting to happen, and
 the best skills are the ones written from your own sessions (`/learn`,
@@ -540,9 +555,9 @@ referenced sibling files) into the target dir — pi reads the file directly.
 ### ⚠️ Restart pi before steps 8–10
 
 Extensions (step 6 + 7) and MCP servers (step 5) load at pi **startup**,
-not mid-session. You've just written `settings.shared.json` and `mcp-adapter.json` during
+not mid-session. You've just written `settings.shared.json` and `mcp.json` during
 this session, so the npm extensions and MCP servers are **not yet loaded** —
-`/mcp-adapter` will show nothing until you restart. Exit pi and relaunch it, then
+`/mcp` will show nothing until you restart. Exit pi and relaunch it, then
 continue from step 8.
 
 ## 8. Memory (pi-book)
@@ -660,7 +675,11 @@ These are **not in this repo** — supply them before first run:
 - [ ] `~/.pi/agent/auth.json` — created automatically by `/login`.
 - [ ] `web-search.json` — optional. Only needed for a private SearXNG
       backend; `pi-web-access` works keyless otherwise (see Prerequisites).
-- [ ] `~/.pi/agent/mcp-adapter.json` — yours to write; suggestions in step 5.
+- [ ] `~/.pi/agent/mcp.json` — yours to write; suggestions in step 5.
+- [ ] `settings.json`'s `subagents` block — the per-machine role → model map
+      and its role map. Deliberately private: it names providers that exist
+      on one machine, and a shared copy fails closed on a fresh clone. See
+      [docs/configuration.md](docs/configuration.md#subagent-model-routing-per-machine).
 - [ ] `obscura` binary on `PATH`; `uvx` on `PATH`.
 
 ## 10. Verify
@@ -668,7 +687,7 @@ These are **not in this repo** — supply them before first run:
 ```bash
 pi                       # launches; no config errors
 # inside pi:
-/mcp-adapter             # lists every server you configured, each "connected"
+/mcp             # lists every server you configured, each "connected"
 # tools from whichever servers you configured should appear
 /memory                  # pi-book status (step 8)
 ```

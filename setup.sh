@@ -123,10 +123,10 @@ Private, per machine — never tracked (see SETUP.md):
   $PI/auth.json          pi auth login
   $PI/models.json        provider config incl. LAN IPs and keys
   $PI/models-store.json  xai oauth token store
-  $PI/mcp-adapter.json   MCP servers; carries inline credentials (SETUP.md step 5)
+  $PI/mcp.json   MCP servers; carries inline credentials (SETUP.md step 5)
   $PI/.env               optional per-machine env and secrets; overrides the
                          shared agent/pi.env (extensions/00-env.ts; /env lists both)
-  $PI/skills/            your skills — personal, like mcp-adapter.json (SETUP.md step 7b)
+  $PI/skills/            your skills — personal, like mcp.json (SETUP.md step 7b)
   $PI/settings.json      pi's own settings: toggles, model picks, plus everything
                          merged in from agent/settings.shared.json (step 3)
   $PI/pi-book.json       pi-book's models: "model", "mode" (microcall|normal), "embedding"

@@ -54,7 +54,7 @@ Per clone, idempotent (`--check` reports without changing anything):
    no lockfile; pin a version in the entry when needed
 5. memory: reports whether the embedding endpoint answers (pi-book needs
    no packages; without embeddings search is keyword-only)
-6. prints what it cannot do: `models.json`, `auth.json`, `mcp-adapter.json`, `.env`,
+6. prints what it cannot do: `models.json`, `auth.json`, `mcp.json`, `.env`,
    skills, `settings.json`, `model-state.json` — the per-machine and personal files
 
 ## Commits
