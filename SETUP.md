@@ -303,9 +303,9 @@ Each is independently useful; take what you need.
 
 | Server | Type | Exposure here | Gives you | Needs |
 |---|---|---|---|---|
-| `context7` | STDIO (`npx`) | direct | up-to-date library/framework docs | nothing |
-| `grep_app` | HTTP | direct | search public GitHub code | nothing |
-| `nixos` | STDIO (`uvx`) | direct | nixpkgs / NixOS options lookup | `uvx` |
+| `context7` | STDIO (`npx`) | deferred | up-to-date library/framework docs | nothing |
+| `grep_app` | HTTP | deferred | search public GitHub code | nothing |
+| `nixos` | STDIO (`uvx`) | deferred | nixpkgs / NixOS options lookup | `uvx` |
 | `obscura` | STDIO | deferred | drive a real page — navigate, click, forms, JS render | `obscura` on `PATH` |
 | `playwright` | STDIO | deferred | full Playwright automation, 20+ tools | `playwright-mcp` on `PATH` |
 
@@ -320,7 +320,11 @@ An MCP search server such as `argus` is redundant alongside it.
 
 > **On `direct` vs `deferred`.** A direct tool costs its definition in every
 > request; a deferred one costs nothing until it is needed, but the model must
-> search for it first. Keep direct for the handful you reach for constantly.
+> search for it first, and loading it changes the tool list, which breaks the
+> prompt cache once for that session. All five servers here are deferred: the
+> three former direct ones cost 3.8k tokens on every request. Avoid `codemode`
+> exposure while many tools are declared — activating `codemode` appends a
+> calling note to every declared tool (+2.2k with ~50 tools).
 
 ```json
 {
@@ -328,12 +332,12 @@ An MCP search server such as `argus` is redundant alongside it.
     "context7": {
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp@latest"],
-      "exposure": "direct",
+      "exposure": "deferred",
       "description": "Up-to-date library and framework documentation."
     },
     "grep_app": {
       "url": "https://mcp.grep.app",
-      "exposure": "direct",
+      "exposure": "deferred",
       "description": "Search public GitHub code."
     },
     "obscura": {
@@ -345,19 +349,16 @@ An MCP search server such as `argus` is redundant alongside it.
     "nixos": {
       "command": "uvx",
       "args": ["mcp-nixos"],
-      "exposure": "direct",
+      "exposure": "deferred",
       "description": "NixOS packages, options and system queries."
     }
   }
 }
 ```
 
-With this exact shape, startup costs +4,167 tokens over `--no-mcp` (measured,
-cache included): 5 direct tool schemas plus the `mcp_servers` section. Leaving
-`playwright` on the `codemode` default instead adds another 2,625, because pi
-then auto-activates `codemode` and its own tool schema — more than the whole MCP
-surface costs. The adapter with the same five servers measured +4,721, so this
-native shape is also the cheaper one.
+With this exact shape, the MCP servers cost only `tool_search` plus a
+one-line `mcp_servers` entry each at startup (measured 20.0k total session
+start, down from 23.8k with context7, grep_app and nixos direct).
 
 `description` is one sentence the model sees in the system prompt's
 `mcp_servers` section; without it, pi uses the server's own instructions once it
