@@ -20,6 +20,7 @@ Packages are listed in [SETUP.md](../../SETUP.md) step 6.
 | [`read-guard/`](#read-guard) | trims a `read` only when it would overflow the context |
 | [`compaction-continue/`](#compaction-continue) | nudges pi when a turn stalls |
 | [`strip-append-system.ts`](#strip-append-systemts) | keeps package-written guides out of the system prompt |
+| [`prompt-diet/`](#prompt-diet) | crisper wording for package tool prompts, pinned by hash |
 | [`base16-theme.ts`](#base16-themets) | base16/base24 YAML schemes as pi themes |
 | [`herdr-agent-state.ts`](#herdr-agent-statets) | agent state for the herdr desktop integration |
 | [`rewind-to.ts`](#rewind-tots) | `/rewind-to [n]`: back to just before an earlier prompt, in place |
@@ -179,6 +180,22 @@ background-tasks guide is ~860 tokens that mostly repeat its tool
 descriptions, and every `pi update` writes it back. This removes those marked
 blocks from the prompt on each agent start. Your own text in the file is kept,
 and the prompt is identical on every turn, so caching is unaffected.
+
+## prompt-diet/
+
+Packages describe their tools at length: tool and parameter descriptions plus
+their `<rules>` bullets were ~10k tokens of every request, much of it repeated.
+Editing the packages does not survive `pi update`, so this swaps in shorter
+text at runtime from `rewrites.json`: rule bullets, `<tools>` one-liners and
+skill descriptions on agent start, tool and parameter `description` strings in
+the provider request. Schema structure is never changed. Session start went
+from 19.3k to 16.1k tokens; a hashline edit test behaved the same with it off.
+
+Each rewrite is pinned to a hash of the text it replaces. When a package update
+changes that text, the original is used and pi warns once per session. To
+refresh, run `PI_DIET=dump pi -p ok`, read the new original and hash from
+`~/.pi/agent/prompt-diet.dump.json` (untracked), and update the entry.
+`PI_DIET=off` turns it off.
 
 ## base16-theme.ts
 

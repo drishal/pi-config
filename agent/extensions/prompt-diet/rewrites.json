@@ -1,0 +1,277 @@
+{
+	"tools": {
+		"read": {
+			"hash": "aa7ebd5b329d",
+			"description": "Read a text file as `anchor│content` rows (4-letter, case-sensitive anchors). Edit by anchor, never by content or line number. `offset`: 1-indexed line or a served anchor (then `limit` counts lines from that row). Page long files with offset/limit; on truncation continue from the hinted offset. A stale anchor is refused with fresh rows. Images attach visually; binary, directories and UTF-16/32 are rejected; an empty file returns one empty row to replace."
+		},
+		"ask_user": {
+			"hash": "6affaf692035",
+			"description": "Ask the user one or more questions as an interactive form (choice or free text). Use it whenever you need their decision, preference or input — never type questions inline. Grilling/design-interview rounds (Q1..QN, ❓, 'recommended answer') MUST go through ask_user.",
+			"params": {
+				"properties.questions.items.properties.options.items.properties.value": "Returned to you when selected",
+				"properties.questions.items.properties.options.items.properties.description": "Optional note under the label",
+				"properties.questions.items.properties.options": "Required for type=choice",
+				"properties.questions.items.properties.allowOther": "Choice only: allow free text (default true)",
+				"properties.questions.items.properties.recommendation": "Your recommended answer; highlights the matching option, else shown as a hint",
+				"properties.questions": "Questions shown together in one form",
+				"properties.numbered": "Prefix Q1, Q2… (grilling rounds only). Default false."
+			}
+		},
+		"todo": {
+			"hash": "188bb3ae3cc7",
+			"description": "Phased todo list.\n- `task`/`phase` are verbatim content strings, never generated ids (\"task-1\"); keep them stable; `view` if you lost the exact text.\n- ops: `init` {list:[{phase,items}]} or {items} (replaces the list) · `start`/`done`/`drop`/`block` {task|phase, reason?}/`unblock` · `rm` {task?|phase?} (neither clears all) · `append` {phase,items} (creates the phase) · `view`.\n- Tasks: 5–10 words, what not how. Phases: short noun phrase, no \"1.\"/\"Phase 1:\" prefix.\n- With nothing in progress, completing a task promotes the earliest open one; completed tasks never revert.\n- `block` tasks awaiting the user, another agent or a service (skips the stop reminder); if you can clear the blocker, `append` a task for it instead.\n- Create a list for 3+ steps, when asked, for a given task set, or when new instructions arrive mid-task. A user's plan, checklist or \"N items\" MUST be `init`ed one task per item — never merge, sample or drop items.\n- Mark done immediately; complete phases in order; never make todo the only tool call of a turn."
+		},
+		"bg_task": {
+			"hash": "8d0b77ed4e0e",
+			"description": "Run shell commands in the background without blocking the turn: persistent logs, no default timeout, stopped as a process group, can wake you on exit or matching output. Recognized bash monitoring loops are auto-diverted here.",
+			"params": {
+				"properties.notifyMode": "always = every update; transition = only when the output tail changes; first-match-only = one notifyPattern match. Default: first-match-only with notifyPattern, else transition.",
+				"properties.dedupeKey": "Coalesces transition wakes across tasks"
+			}
+		},
+		"replace": {
+			"hash": "7d1a84010a6e",
+			"description": "Replace a line range by anchor: `remove_from`/`remove_to` are the anchors of its first and last line (the same anchor for one line; `replace_from`/`replace_to` are aliases); `text` is the exact replacement. Deleting every line empties the file and returns its empty-line anchor for seeding. To change part of a line, use `replace_match`.",
+			"params": {
+				"properties.text": "Exact replacement; \"\" deletes the range. A trailing newline sets the last line's terminator (no extra blank line); a lone newline writes one blank line."
+			}
+		},
+		"replace_match": {
+			"hash": "b25dff12af6c",
+			"description": "Change a fragment inside a line range without retyping the rest. `replace_from`/`replace_to`: anchors of the first and last line searched (the same anchor for one line; `remove_from`/`remove_to` are aliases). Both boundary rows must still match what was served; interior lines are searched as on disk. Every occurrence of `match` in the range becomes `replacement`; everything else stays byte-for-byte. Copy `match` from a served row and send only the fragment that changes; it must be unique within the range, not file-wide — to change one of several occurrences, narrow the anchors instead of lengthening `match`. If `match` would be the whole line minus indentation and trailing punctuation, use `replace`.",
+			"params": {
+				"properties.replace_from": "Anchor of the FIRST line searched.",
+				"properties.replace_to": "Anchor of the LAST line searched (= replace_from for one line).",
+				"properties.match": "Exact fragment that changes, within one line. A trailing newline counts as the line's terminator; any other newline, or a value that is only a newline, is refused.",
+				"properties.replacement": "Exact replacement for every match; \"\" deletes them. One line; a trailing newline is dropped."
+			}
+		},
+		"insert": {
+			"hash": "6bffdeddc795",
+			"params": {
+				"properties.text": "Exact text without anchor prefixes, never including the anchor line; \"\" inserts one blank line. A trailing newline sets the last line's terminator; a lone newline writes one blank line."
+			}
+		},
+		"copy": {
+			"hash": "48a500ee89a7",
+			"description": "Duplicate a line range (`source_from`..`source_to`; the same anchor for one line) before or after `anchor`, in this or another file. It copies the content as served, so same-message edits to the source don't change it. Source anchors stay live; the copy gets fresh anchors in the post-edit diff and keeps its line endings."
+		},
+		"move": {
+			"hash": "1e30a3642eee",
+			"description": "Relocate a line range before or after `anchor`, in this or another file. Within one file the destination must lie outside the range; moving it onto itself reports `No changes made`. A cross-file move commits on its own when its source file has other batched edits, does not show the source diff, and leaves the source needing a read for fresh anchors."
+		},
+		"grep": {
+			"hash": "bf1d779f3c6a",
+			"description": "Search with ripgrep. Hits are `N:│ anchor│content`, context rows `N-│ anchor│content`; both are editable without a read, under `=== path ===` headers. Regex by default (Rust syntax: no backreferences or look-around); `literal: true` for exact text or regex metacharacters, `ignoreCase`, `context` for surrounding rows. Respects .gitignore, skips .git, binaries and images. Matches over 500 bytes show as a fragment; the anchor still covers the line. Cut by match limit: raise `limit` (default 100); cut by size: narrow `pattern` or `path`.",
+			"params": {
+				"properties.glob": "Glob filter; `*` crosses directories (e.g. `*.ts`); relative to the search root."
+			}
+		},
+		"web_search": {
+			"hash": "ff31c68b905c",
+			"description": "Search the web; returns source-linked results or provider answers. Full results are stored for get_search_content via the returned responseId. Omit provider unless overriding the configured default.",
+			"params": {
+				"properties.query": "One query; for research prefer `queries`.",
+				"properties.queries": "2–4 queries searched concurrently. Vary angle, scope and phrasing — near-duplicates waste results.",
+				"properties.provider": "Override the configured provider (one name or a list searched together). Omit to use the default.",
+				"properties.workflow": "none (default) | summary-review (curator with draft summary) | auto-summary (summary, no curator)",
+				"properties.proxy": "http(s)/socks proxy URL for every request in this call, when direct access is blocked; \"\" forces direct."
+			}
+		},
+		"source_check": {
+			"hash": "db3e59d2d76b",
+			"params": {
+				"properties.provider": "Override the configured provider (one name or a list searched together).",
+				"properties.proxy": "http(s)/socks proxy URL for this call; \"\" forces direct."
+			}
+		},
+		"fetch_content": {
+			"hash": "1cb09b2c2d67",
+			"description": "Fetch URL(s) as markdown (`readable`, default), the exact body over direct HTTP (`raw`), or an answer to `prompt` from the fetched content only (`answer`). Handles direct images, GitHub repos (cloned locally), PDFs, YouTube and local videos. Full content is stored for get_search_content.",
+			"params": {
+				"properties.forceClone": "Clone GitHub repos above the size threshold",
+				"properties.prompt": "Question for answer mode or video analysis",
+				"properties.mode": "readable (default) | raw | answer",
+				"properties.answerModel": "provider/model override for answer mode (default: configured answer model, else the current model)",
+				"properties.timestamp": "Video frame(s): '1:23:45', '23:45', '85' (seconds), or a range '23:41-25:00' giving a contact sheet of evenly spaced frames (default 6) — use a range when you know roughly where. Needs ffmpeg (+ yt-dlp for YouTube).",
+				"properties.frames": "Frame count: with a range sets density; with one timestamp, N frames 5s apart; alone, samples the whole video.",
+				"properties.model": "Gemini model override for video analysis",
+				"properties.auth": "authFetch browser-cookie profile name (true when exactly one exists)",
+				"properties.proxy": "http(s)/socks proxy URL when the target is unreachable directly; \"\" forces direct.",
+				"properties.redirects": "Refuse cross-origin redirects (scheme, host and port must match)"
+			}
+		},
+		"get_search_content": {
+			"hash": "a77852f2b63d",
+			"params": {
+				"properties.offset": "Character offset (default 0); ignored with findText",
+				"properties.limit": "Max characters (default and max: maxInlineContentChars); ignored with findText",
+				"properties.findText": "Text(s) to locate in the stored content; overrides offset/limit",
+				"properties.findMode": "findText matching (default case-insensitive)"
+			}
+		},
+		"bg_wait": {
+			"hash": "64595aba0f06",
+			"description": "Wait for background work that has no native wake (provider, detached); async subagent runs already wake this session.\n{} first to finish or need attention · {all:true} all active work · {id} one run (returns result references) · {id,nonBlocking:true} subscribe and return now.\nA timeout or user message ends the wait without error; work keeps running."
+		},
+		"tern_status": {
+			"hash": "e527e67c3b9f",
+			"description": "Report Tern state: pane ids, TSP hello (kinds, features, credits), last mermaid, mirror state; `manifest` adds the capability contract. Other tern_* tools are callable from codemode by name: capture, panes, ctl, mirror, watch, diagnose, shot, remote, bridge, doc, board, carly, notebook, settings, chart, worktree, pr, fleet."
+		},
+		"tern_run": {
+			"hash": "b80f1a076659",
+			"description": "Run a shell command in a visible Tern pane and return its output; `fromTranscript` runs the newest bash/sh block from the conversation. Runs with pi's permissions."
+		},
+		"tool_search": {
+			"hash": "424035bfb342",
+			"description": "Search deferred tools (such as MCP server tools) with BM25 and load the matches for your next call. Always use it to find MCP tools."
+		}
+	},
+	"guidelines": {
+		"read": {
+			"hash": "cc4cfc6df39c",
+			"lines": [
+				"Use the hashline tools for every file read and edit: read, replace, replace_match, insert, copy, move, undo_last_change.",
+				"Post-edit diff `+`/` ` rows and served rows already carry fresh anchors; re-read only for anchors you lack. `replace_match` needs both boundary rows served."
+			]
+		},
+		"replace": {
+			"hash": "60cce56be2ff",
+			"lines": [
+				"replace/replace_match/insert/copy/move: same-message calls need disjoint ranges; same-file calls commit as one batch (earlier calls reply `In batch N (queued)`, the last shows the combined diff, one undo reverts all). An invalid call fails alone; a failure while the batch runs aborts it.",
+				"replace/replace_match/insert/copy/move: anchors pick the file; `path` is optional but must match. In post-edit diffs `-anchor│` rows are dead, `+anchor│` and ` anchor│` rows live.",
+				"replace/replace_match/insert: `text` is written verbatim; escapes decode once at parse (`\\uXXXX` is the character, `\\\\uXXXX` the literal text).",
+				"replace: `text: \"\"` is the cheap way to clear a large range (checks only its first and last line)."
+			]
+		},
+		"replace_match": {
+			"hash": "9fa4f37c1d67",
+			"lines": []
+		},
+		"copy": {
+			"hash": "ce3c7b20d71a",
+			"lines": [
+				"copy/move: only the two source boundary rows and the destination line need serving. To land right beside the block, anchor its last line with `after` (or first with `before`); to append at end of file, anchor the file's last line with `after`. An empty destination file is seeded."
+			]
+		},
+		"move": {
+			"hash": "0041141856b2",
+			"lines": []
+		},
+		"undo_last_change": {
+			"hash": "685c0b04a9e4",
+			"lines": [
+				"undo_last_change: one slot per file, not a stack (a second undo returns E_UNDO_NONE); a `write` clears it; a cross-file move needs an undo on both files."
+			]
+		},
+		"grep": {
+			"hash": "1de98c740b8c",
+			"lines": []
+		},
+		"ask_user": {
+			"hash": "4a1c95aa6532",
+			"lines": [
+				"ask_user: put all related questions of a turn in one call; set `numbered: true` only for grilling rounds. Forms need TUI or RPC (print/json mode returns plain text). On 'cancelled', stop and let the user redirect."
+			]
+		},
+		"todo": {
+			"hash": "35c01aa34af1",
+			"lines": []
+		},
+		"bg_task": {
+			"hash": "1c175b580f26",
+			"lines": [
+				"bg_task: use it instead of nohup/& or foreground polling loops for long commands and for tmux/session/agent/log monitoring; check with list/log/stop. If a bash monitor gets auto-backgrounded, carry on and check it later."
+			]
+		},
+		"lsp_definition": {
+			"hash": "87704e902040",
+			"lines": [
+				"Prefer the lsp_* tools for known symbols, definitions, references, types, diagnostics and call sites; grep for exact literals."
+			]
+		},
+		"lsp_references": {
+			"hash": "87704e902040",
+			"lines": []
+		},
+		"lsp_hover": {
+			"hash": "87704e902040",
+			"lines": []
+		},
+		"lsp_symbols": {
+			"hash": "87704e902040",
+			"lines": []
+		},
+		"lsp_diagnostics": {
+			"hash": "87704e902040",
+			"lines": []
+		}
+	},
+	"snippets": {
+		"grep": {
+			"hash": "1007933b1f9b",
+			"text": "Ripgrep search; hits are editable anchored rows"
+		},
+		"replace": {
+			"hash": "41ddafc91408",
+			"text": "Replace lines by anchor"
+		},
+		"replace_match": {
+			"hash": "f32f22fca00a",
+			"text": "Replace a fragment within lines by anchor"
+		},
+		"insert": {
+			"hash": "f51e2d307d11",
+			"text": "Insert lines before/after an anchor line"
+		},
+		"copy": {
+			"hash": "bf1865bf738b",
+			"text": "Copy lines to an anchor"
+		},
+		"move": {
+			"hash": "7837cd961ec4",
+			"text": "Move lines to an anchor"
+		},
+		"ask_user": {
+			"hash": "181e3400f24b",
+			"text": "Ask the user through an interactive form"
+		},
+		"web_search": {
+			"hash": "cef79b34792f",
+			"text": "Search the web"
+		},
+		"source_check": {
+			"hash": "8e6cf27d1153",
+			"text": "Gather cited sources for a claim"
+		},
+		"fetch_content": {
+			"hash": "50923f24da20",
+			"text": "Fetch URLs, GitHub repos, PDFs, images, videos"
+		},
+		"get_search_content": {
+			"hash": "598224ae878b",
+			"text": "Read stored web_search/fetch_content results by responseId"
+		},
+		"lsp_definition": {
+			"hash": "93e97081e280",
+			"text": "Go to definition (1-based position)"
+		},
+		"lsp_references": {
+			"hash": "93e97081e280",
+			"text": "Find references (1-based position)"
+		},
+		"lsp_hover": {
+			"hash": "93e97081e280",
+			"text": "Hover/type info (1-based position)"
+		},
+		"lsp_symbols": {
+			"hash": "93e97081e280",
+			"text": "Document or workspace symbols"
+		},
+		"lsp_diagnostics": {
+			"hash": "93e97081e280",
+			"text": "Diagnostics for a file"
+		}
+	},
+	"skills": {}
+}
