@@ -4,7 +4,7 @@
  * Renders three things:
  *
  *   > In a batch, launch a few read/grep commands.
- *   ● I created ~/Desktop/models/files/ornith122b/download.sh. …
+ *   I created ~/Desktop/models/files/ornith122b/download.sh. …
  *
  *   ● Batch 3/3 · succeeded · ctrl+o to inspect
  *     ├─ Read ../../AGENTS.md:1-12 · 14 lines
@@ -59,7 +59,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AssistantMessageComponent, highlightCode, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 const CARD_PATCH = Symbol.for("dr.pi.neatRender.card.v1");
 const ROW_PATCH = Symbol.for("dr.pi.neatRender.row.v1");
@@ -1136,7 +1136,6 @@ function installThinking(): ThinkingPatchable | undefined {
 		original.call(this, message, isStreaming);
 		try {
 			decorateThinking(this as AssistantInternals, message as { content?: ContentBlock[] });
-			decorateReply(this as AssistantInternals);
 		} catch {
 			/* keep pi's own rendering */
 		}
@@ -1145,48 +1144,6 @@ function installThinking(): ThinkingPatchable | undefined {
 	return proto;
 }
 
-/**
- * Claude Code prefixes the assistant's reply text with a `●` bullet. pi
- * renders each text block as a bare Markdown child, so wrap the first one:
- * the bullet on the first line, continuation lines aligned under the text.
- * Only the display changes; the child still renders its own content.
- */
-class ReplyBullet {
-	private readonly body: Renderable;
-	constructor(body: Renderable) {
-		this.body = body;
-	}
-	render(width: number): string[] {
-		const lines = this.body.render(Math.max(8, width - 2));
-		if (lines.length === 0) return lines;
-		const dot = "●"; // Claude's bullet is the text color, not an accent.
-		return lines.map((l, i) => {
-			// Assistant Markdown carries pi's output pad; drop one column so
-			// the text starts where the bullet points, Claude-style.
-			const t = l.startsWith(" ") ? l.slice(1) : l;
-			return i === 0 ? `${dot} ${t}` : `  ${t}`;
-		});
-	}
-	invalidate(): void {
-		(this.body as { invalidate?(): void }).invalidate?.();
-	}
-}
-
-/**
- * Wrap the first text block in a ReplyBullet. Thinking blocks are
- * MouseRegions and tool rows render elsewhere, so the first Markdown child
- * is the reply text. No text block, no bullet.
- */
-function decorateReply(host: AssistantInternals): void {
-	const kids = (host.contentContainer as { children?: unknown[] } | undefined)?.children;
-	if (!Array.isArray(kids)) return;
-	for (let i = 0; i < kids.length; i++) {
-		if (kids[i] instanceof Markdown) {
-			kids[i] = new ReplyBullet(kids[i] as Renderable);
-			break;
-		}
-	}
-}
 
 function uninstallThinking(proto: ThinkingPatchable | undefined): void {
 	if (!proto) return;
