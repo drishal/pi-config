@@ -645,14 +645,18 @@ function installCard(): Patchable | undefined {
 		// measures exactly `width`, which is all pi requires.
 		const mark = theme.fg("dim", ">");
 		const room = Math.max(8, width - 2);
+		// The `>` opens the quote once, Claude-style: wrapped lines and
+		// later paragraphs indent under it instead of repeating the marker.
 		const rows: string[] = [];
+		let opened = false;
 		for (const para of text.replace(/\n+$/, "").split("\n")) {
 			if (!para.trim()) {
-				rows.push(mark);
+				rows.push("");
 				continue;
 			}
-			wrapTextWithAnsi(para, room).forEach((line, i) => {
-				rows.push(i === 0 ? `${mark} ${line}` : `  ${line}`);
+			wrapTextWithAnsi(para, room).forEach((line) => {
+				rows.push(opened ? `  ${line}` : `${mark} ${line}`);
+				opened = true;
 			});
 		}
 		if (rows.length === 0) return original.call(this, width);
