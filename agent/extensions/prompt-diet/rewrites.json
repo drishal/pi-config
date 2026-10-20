@@ -273,5 +273,10 @@
 			"text": "Diagnostics for a file"
 		}
 	},
-	"skills": {}
+	"skills": {
+		"todo-discipline": {
+			"hash": "f1074a501aa8",
+			"description": "How to keep the todo tool's phased list live: init before work, one task per item, mark done immediately."
+		}
+	}
 }
