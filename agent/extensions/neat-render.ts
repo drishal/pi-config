@@ -638,22 +638,27 @@ function installCard(): Patchable | undefined {
 		const text = (this as unknown as { text?: unknown }).text;
 		if (typeof text !== "string" || !text.trim()) return original.call(this, width);
 
-		// Claude Code draws the prompt as a `>` quote: no border, no
-		// background fill. The fill is what kept breaking, so it is gone —
-		// the raw text is wrapped and quoted directly.
+		// Claude Code draws the prompt as a `>` quote over a plain
+		// full-width fill strip: no borders, so no box geometry to break.
+		// The raw text is wrapped and quoted directly, then each line is
+		// padded out to the full width and painted. Every painted line
+		// measures exactly `width`, which is all pi requires.
 		const mark = theme.fg("dim", ">");
 		const room = Math.max(8, width - 2);
-		const out: string[] = [];
+		const rows: string[] = [];
 		for (const para of text.replace(/\n+$/, "").split("\n")) {
 			if (!para.trim()) {
-				out.push(mark);
+				rows.push(mark);
 				continue;
 			}
 			wrapTextWithAnsi(para, room).forEach((line, i) => {
-				out.push(i === 0 ? `${mark} ${line}` : `  ${line}`);
+				rows.push(i === 0 ? `${mark} ${line}` : `  ${line}`);
 			});
 		}
-		if (out.length === 0) return original.call(this, width);
+		if (rows.length === 0) return original.call(this, width);
+		const out = rows.map((line) =>
+			theme.bg("userMessageBg", line + " ".repeat(Math.max(0, width - visibleWidth(line)))),
+		);
 		// Keep the shell-integration zone pi's own render emits.
 		out[0] = `${OSC133_ZONE_START}${out[0]}`;
 		out[out.length - 1] = `${out[out.length - 1]}${OSC133_ZONE_END}${OSC133_ZONE_FINAL}`;
@@ -1154,7 +1159,7 @@ class ReplyBullet {
 	render(width: number): string[] {
 		const lines = this.body.render(Math.max(8, width - 2));
 		if (lines.length === 0) return lines;
-		const dot = state.theme ? state.theme.fg("accent", "●") : "●";
+		const dot = "●"; // Claude's bullet is the text color, not an accent.
 		return lines.map((l, i) => {
 			// Assistant Markdown carries pi's output pad; drop one column so
 			// the text starts where the bullet points, Claude-style.

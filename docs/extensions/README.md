@@ -85,7 +85,7 @@ Compact transcript chrome without wrapping any tool: it patches the render
 methods of pi's tool, user-message and batch components, so it works for every
 tool, including those of other extensions.
 
-- user messages as a `>` quote and assistant replies with a `●` bullet (Claude-Code style; no background fill)
+- user messages as a `>` quote over a full-width fill strip, assistant replies with a plain `●` bullet (Claude-Code style)
 - tool rows as call + outcome; running commands wrapped as `└ $ …`
 - inline edit diffs; a pulsing bullet while a tool runs
 - a bash command's leading `# comment` lines shown dimmed above the call
