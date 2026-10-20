@@ -457,6 +457,11 @@ Skills are `SKILL.md` files. pi loads them from (in order) `.pi/skills/`,
 `.agents/skills/` (project, walking up parents), then `~/.pi/agent/skills/`
 and `~/.agents/skills/` (user-global).
 
+Every listed skill costs its name, description and path in every prompt.
+`skills` in `settings.shared.json` drops cross-agent skills pi does not need
+with exact-path exclusions (`"-~/.agents/skills/hf-cli"`); this works for
+skill directories only, not for skills a package adds at runtime.
+
 **Skills are personal — this repo ships none.** Like `mcp.json`, `skills/` is
 off the allowlist: every listed skill costs prompt tokens in every session, a
 skill that does not fit your work is a routing mistake waiting to happen, and

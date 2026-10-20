@@ -15,6 +15,10 @@
     "npm:pi-subagents",
     "npm:pi-tern"
   ],
+  "skills": [
+    "-~/.agents/skills/agent-browser",
+    "-~/.agents/skills/hf-cli"
+  ],
   "defaultTools": [
     "read",
     "bash",
