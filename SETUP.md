@@ -147,11 +147,11 @@ pi creates most of this on first run. What matters:
 | `mcp-cache.json`, `mcp-npx-cache.json` | Auto-generated MCP tool caches             | No (auto)     |
 | `sessions/`, `memories/`, `stream/`, `trust.json` | Runtime state                   | No (auto)     |
 
-`AGENTS.md` is worth calling out: it carries the MCP routing rules that tell
-the model which tool to reach for (`web_search`/`web_fetch` for the web,
-obscura for pages that need a real browser, grep_app for public code, context7
-for library docs, nixos for packages; memory is pi-book, step 8). Without it the
-servers are present but rarely chosen well.
+`AGENTS.md` is the global prompt: style, working rules and the few tool hints
+no tool description carries. Which MCP server does what comes from the
+`description` fields in `mcp.json` (the prompt's `mcp_servers` section), so
+AGENTS.md only says to find them with `tool_search`. Keep it short: every line
+is in every request.
 
 ## 4. `settings.shared.json` (shared settings)
 
@@ -204,7 +204,7 @@ The shared file, as a starting point:
   on startup (and via `pi install <pkg>`). See step 6.
 - `defaultTools` adds pi's built-in `find` (fd, respects `.gitignore`) to the
   default four. With it, search needs no package: `find` for file names and
-  pi-hashline-edit-pro's `anchor_grep` (ripgrep) for contents. hashline still
+  pi-hashline-edit-pro's anchored `grep` (ripgrep) for contents. hashline still
   replaces `read` and the edit tools, and sudo-session wraps `bash`.
 
 > **`packages` is the only thing that loads an npm extension.** pi's
