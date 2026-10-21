@@ -20,11 +20,8 @@
     "-~/.agents/skills/hf-cli"
   ],
   "defaultTools": [
-    "read",
-    "bash",
-    "edit",
-    "write",
-    "find"
+    "+find",
+    "+codemode"
   ],
   "compaction": {
     "enabled": true,
