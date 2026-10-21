@@ -3,13 +3,13 @@
  *
  * Renders three things:
  *
- *   > In a batch, launch a few read/grep commands.
+ *   ❯ In a batch, launch a few read/grep commands.
  *   I created ~/Desktop/models/files/ornith122b/download.sh. …
  *
- *   ● Batch 3/3 · succeeded · ctrl+o to inspect
- *     ├─ Read ../../AGENTS.md:1-12 · 14 lines
- *     ├─ grep pane=true · 1 result
- *     └─ Bash $ printf 'diagnostic'; pwd · exit 0 · 3 lines
+ *   ▾ 3 tool calls · 1.4s
+ *   ├─ ● Read ../../AGENTS.md:1-12 · 14 lines
+ *   ├─ ● grep pane=true · 1 result
+ *   └─ ● Bash $ printf 'diagnostic'; pwd · exit 0 · 3 lines
  *
  * ── Why this is a renderer, not a tool wrapper ─────────────────────────────
  * The obvious way to get compact rows is to re-register `read`/`bash` with
@@ -39,11 +39,12 @@
  *   NEAT_RENDER_ROWS=0   leave tool rows alone (keeps grouping off too)
  *   NEAT_RENDER_SPLIT=0  one line per call: outcome stays on the call line
  *                        and a running command truncates instead of wrapping
- *   NEAT_RENDER_BATCH=1  restore the `Batch N/N · succeeded` header and the
- *                        ├─/└─ tree connectors (default: plain stacked rows)
- *   NEAT_RENDER_RULES=1  restore the horizontal rules around a run; needs
- *                        NEAT_RENDER_BATCH=1 to be visible
+ *   NEAT_RENDER_BATCH=0  stack parallel calls as plain bulleted rows instead
+ *                        of the `▾ N tool calls` header and ├/└ tree
+ *   NEAT_RENDER_RULES=1  horizontal rules around a parallel group
  *   NEAT_RENDER_PULSE=0  static bullet on running rows instead of a pulse
+ *   NEAT_RENDER_TIMER=0  no elapsed timer on running rows and no duration
+ *                        on finished ones
  *   NEAT_RENDER_COMMENTS=0  keep a bash command's leading `# comment`
  *                        lines inline instead of on a dim line above the call
  *   NEAT_RENDER_HIGHLIGHT=0  ctrl+o shows a bash command in pi's single
@@ -436,6 +437,53 @@ function pulseOn(): boolean {
 	return Math.floor(Date.now() / PULSE_MS) % 2 === 0;
 }
 
+/* ── elapsed timer on running rows ─────────────────────────────────────── */
+
+/**
+ * When a row started being partial, per ToolExecutionComponent. pi recreates
+ * those between turns, and an execution only goes partial when it actually
+ * starts running, so the stamp is taken on the first partial render.
+ */
+const RUN_STARTS = new WeakMap<object, number>();
+/** Partial rows whose elapsed is past the timer threshold. */
+const timedRows = new WeakSet<object>();
+
+/**
+ * How long a call must run before the timer appears, in ms. Below this the
+ * stopwatch would flash into existence for the fraction of a render —
+ * everything says the call is finishing, and then it is.
+ */
+const TIMER_AFTER_MS = 1500;
+/** How often a timed row invalidates while pulse is off. */
+const TIMER_TICK_MS = 500;
+
+/** When a stamped row was first rendered finished, per ToolExecutionComponent. */
+const RUN_ENDS = new WeakMap<object, number>();
+
+/** Elapsed since a row started running: "9s", "3m12s". */
+function elapsedLabel(start: number): string {
+	const s = Math.floor(Math.max(0, Date.now() - start) / 1000);
+	const m = Math.floor(s / 60);
+	return m > 0 ? `${m}m${s % 60}s` : `${s}s`;
+}
+
+/** A finished call's duration: "1.4s", "3m12s". */
+function durationLabel(ms: number): string {
+	if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+	const s = Math.floor(ms / 1000);
+	return `${Math.floor(s / 60)}m${s % 60}s`;
+}
+
+/** How long a finished row ran, when both ends were seen. */
+function tookMs(row: object): number | undefined {
+	const start = RUN_STARTS.get(row);
+	const end = RUN_ENDS.get(row);
+	return start !== undefined && end !== undefined ? end - start : undefined;
+}
+
+/** Durations under this stay off the row; a column of "0.0s" is noise. */
+const DURATION_AFTER_MS = 1000;
+
 /**
  * Keep a running row repainting so its bullet can pulse.
  *
@@ -518,25 +566,43 @@ function wrapTo(text: string, width: number, max: number): string[] {
  * A *running* call instead puts the whole command on `└ $`, wrapped rather
  * than truncated, so you can actually read what is executing:
  *
- *   ● Bash · running…
+ *   ● Bash · running… · 4s
  *     └ $ cd ~/.pi && cat .gitignore && echo "═══ SIZES ═══"
  *       && find . -type f -newer agent/settings.json | head -5 …
  *
+ * Inside a parallel group (see renderRun) a finished call keeps its outcome
+ * on the call line instead — the tree connectors already give the rows their
+ * structure, and a `└` outcome would collide with the tree's own `└`:
+ *
+ *   ├─ ● Read agent/skills/pi-config-sync/SKILL.md · 115 lines
+ *
  * Both callers already indent continuation lines (renderRun pads a lone
- * call by two columns and a batch child by its `│  `/`   ` lead), so extra
+ * call by two columns and a group child by its `│  `/`   ` lead), so extra
  * lines nest correctly with no layout work here.
  *
  * NEAT_RENDER_SPLIT=0 keeps the old single-line form.
  */
 /** Lines a row puts above its call line (the `# remark`), per row. */
 const LEAD_LINES = new WeakMap<ToolRow, number>();
+/** Rows renderRun is currently drawing as a parallel-group child. */
+const GROUPED = new WeakSet<object>();
 
-function rowLines(row: ToolRow, theme: ThemeLike, width: number): string[] {
+function rowLines(row: ToolRow, theme: ThemeLike, width: number, start?: number, took?: number): string[] {
 	const { label, detail, facts, glue, body: extra, hidden, note } = summarize(row);
+	// Elapsed time on a call that has been running for a while.
+	const timerText =
+		!off("NEAT_RENDER_TIMER") && row.isPartial && start !== undefined && Date.now() - start >= TIMER_AFTER_MS
+			? elapsedLabel(start)
+			: "";
 	if (hidden) return [];
+	// How long a finished call took, unless the tool already reported it.
+	if (!off("NEAT_RENDER_TIMER") && took !== undefined && took >= DURATION_AFTER_MS && !facts.some((f) => /^\d[\dm.]*s$/.test(f))) {
+		facts.push(durationLabel(took));
+	}
 	const sep = theme.fg("dim", " · ");
 	const failed = row.result?.isError === true;
 	const split = !off("NEAT_RENDER_SPLIT");
+	const inline = !split || GROUPED.has(row as object);
 	const join = glue ?? " ";
 
 	// pi hard-errors if any rendered line exceeds the width it handed us, so
@@ -561,9 +627,8 @@ function rowLines(row: ToolRow, theme: ThemeLike, width: number): string[] {
 	// Running, split mode: the command moves to its own wrapped `└ $` block,
 	// so the header carries only the label and status.
 	if (running && split && detail) {
-		const header = fit(
-			`${theme.bold(theme.fg("toolTitle", label))}${sep}${theme.fg("muted", "running…")}`,
-		);
+		const status = theme.fg("muted", "running…") + (timerText ? `${sep}${theme.fg("dim", timerText)}` : "");
+		const header = fit(`${theme.bold(theme.fg("toolTitle", label))}${sep}${status}`);
 		// "└ " then the detail; continuation lines align under the detail.
 		const lead = theme.fg("dim", "└ ");
 		const body = wrapTo(detail, Math.max(8, width - 2), WRAP_LINES);
@@ -579,10 +644,10 @@ function rowLines(row: ToolRow, theme: ThemeLike, width: number): string[] {
 	// Whatever still lands on the call line has to be budgeted for before the
 	// detail is truncated, or the ellipsis eats the status instead of the path.
 	const reserve = running
-		? visibleWidth(sep) + visibleWidth("running…")
-		: split
-			? 0
-			: 22;
+		? visibleWidth(sep) + visibleWidth("running…") + (timerText ? visibleWidth(sep) + visibleWidth(timerText) : 0)
+		: inline
+			? Math.min(40, facts.reduce((n, f) => n + visibleWidth(sep) + visibleWidth(f), 0))
+			: 0;
 
 	let head = theme.bold(theme.fg("toolTitle", label));
 	if (detail) {
@@ -593,7 +658,11 @@ function rowLines(row: ToolRow, theme: ThemeLike, width: number): string[] {
 	}
 
 	// A still-running call has no outcome yet; keep it on one line.
-	if (running) return [fit(`${head}${sep}${theme.fg("muted", "running…")}`)];
+	if (running) {
+		let line = `${head}${sep}${theme.fg("muted", "running…")}`;
+		if (timerText) line += `${sep}${theme.fg("dim", timerText)}`;
+		return [fit(line)];
+	}
 
 	const paint = (f: string) =>
 		theme.fg(failed || /^(failed|exit [1-9])/.test(f) ? "error" : "success", f);
@@ -604,9 +673,12 @@ function rowLines(row: ToolRow, theme: ThemeLike, width: number): string[] {
 		return [fit(out)];
 	}
 
-	const out = [...noteLine, fit(head)];
-	if (facts.length > 0) {
-		out.push(fit(theme.fg("dim", "└ ") + facts.map(paint).join(sep)));
+	const out = [...noteLine];
+	if (inline) {
+		out.push(fit(head + facts.map((f) => sep + paint(f)).join("")));
+	} else {
+		out.push(fit(head));
+		if (facts.length > 0) out.push(fit(theme.fg("dim", "└ ") + facts.map(paint).join(sep)));
 	}
 	// Diff rows sit under the stat line, indented past the `└ ` and coloured
 	// by their marker so an edit reads as a diff rather than a paragraph.
@@ -620,7 +692,7 @@ function rowLines(row: ToolRow, theme: ThemeLike, width: number): string[] {
 	return out;
 }
 
-/* ── patch 1: user message as a `>` quote ─────────────────────────────── */
+/* ── patch 1: user message as a `❯` quote ─────────────────────────────── */
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -638,14 +710,14 @@ function installCard(): Patchable | undefined {
 		const text = (this as unknown as { text?: unknown }).text;
 		if (typeof text !== "string" || !text.trim()) return original.call(this, width);
 
-		// Claude Code draws the prompt as a `>` quote over a plain
+		// Claude Code draws the prompt as a `❯` quote over a plain
 		// full-width fill strip: no borders, so no box geometry to break.
 		// The raw text is wrapped and quoted directly, then each line is
 		// padded out to the full width and painted. Every painted line
 		// measures exactly `width`, which is all pi requires.
-		const mark = theme.fg("dim", ">");
+		const mark = theme.fg("dim", "❯");
 		const room = Math.max(8, width - 2);
-		// The `>` opens the quote once, Claude-style: wrapped lines and
+		// The `❯` opens the quote once, Claude-style: wrapped lines and
 		// later paragraphs indent under it instead of repeating the marker.
 		const rows: string[] = [];
 		let opened = false;
@@ -815,7 +887,12 @@ function framedLines(comp: unknown, row: ToolRow, theme: ThemeLike, width: numbe
 		out.push(...output.map(boxed));
 	}
 	const { facts } = summarize(row);
-	const status = row.isPartial ? ["running…"] : facts;
+	const start = comp && typeof comp === "object" ? RUN_STARTS.get(comp as object) : undefined;
+	const status = row.isPartial
+		? start !== undefined && Date.now() - start >= TIMER_AFTER_MS
+			? ["running…", elapsedLabel(start)]
+			: ["running…"]
+		: facts;
 	out.push(status.length > 0 ? labelled("╰", status.join(" · "), "╯", tone) : g(`╰${"─".repeat(width - 2)}╯`));
 
 	// Images keep pi's own layout, below the frame.
@@ -851,10 +928,30 @@ function installRows(): Patchable | undefined {
 			}
 			return original.call(this, width);
 		}
-		// Arm the next pulse frame while this call is still in flight.
-		if (row.isPartial) armPulse(this);
+		// Stamp the call while it is in flight, and keep the repaint chain
+		// alive for the timer even when pulse is off.
+		let start: number | undefined;
+		if (row.isPartial) {
+			start = RUN_STARTS.get(this as object) ?? Date.now();
+			RUN_STARTS.set(this as object, start);
+			armPulse(this);
+			if (!off("NEAT_RENDER_TIMER") && Date.now() - start >= TIMER_AFTER_MS && timedRows.add(this as object)) {
+				// The timer must tick even with pulse off; armPulse no-ops then.
+			const timer = setTimeout(() => {
+				try {
+					(this as unknown as { invalidate?(): void }).invalidate?.();
+				} catch {
+					/* component torn down mid-flight */
+				}
+			}, TIMER_TICK_MS);
+			(timer as { unref?: () => void }).unref?.();
+			}
+		} else if (RUN_STARTS.has(this as object) && !RUN_ENDS.has(this as object)) {
+			// First finished render of a call we saw running: its end time.
+			RUN_ENDS.set(this as object, Date.now());
+		}
 		try {
-			return rowLines(row, theme, width);
+			return rowLines(row, theme, width, start, tookMs(this as object));
 		} catch {
 			return original.call(this, width);
 		}
@@ -895,11 +992,27 @@ function installGrouping(): Patchable | undefined {
 				i += 1;
 				continue;
 			}
-			// Collect the whole adjacent run.
+			// Collect the whole run. pi gives every assistant message its own
+			// component, and one that is nothing but tool calls renders no
+			// lines — so it must not split calls that read as one block.
+			const run: ToolRow[] = [];
+			let after: string[] = [];
 			let end = i;
-			while (end < kids.length && kids[end] instanceof ToolExecutionComponent) end += 1;
-			const run = kids.slice(i, end) as unknown as ToolRow[];
-			out.push(...renderRun(run, theme, width, rules));
+			while (end < kids.length) {
+				const kid = kids[end];
+				if (kid instanceof ToolExecutionComponent) {
+					run.push(kid as unknown as ToolRow);
+					end += 1;
+					continue;
+				}
+				const lines = (kid as { render(w: number): string[] }).render(width);
+				end += 1;
+				if (lines.length > 0) {
+					after = lines;
+					break;
+				}
+			}
+			out.push(...renderRun(run, theme, width, rules), ...after);
 			i = end;
 		}
 		return out;
@@ -912,23 +1025,29 @@ function installGrouping(): Patchable | undefined {
 /**
  * Render a run of adjacent tool calls.
  *
- * Every call — batched or not — gets the same bulleted row, stacked one
- * below the next:
+ * A lone call is a bulleted row; continuation lines align under its text:
  *
  *   ● Bash $ grep -rniE '(api[_-]?key|secret|token)' .
  *     └ exit 0 · 80 lines
- *   ● Bash $ grep -rniE '(sk-[a-zA-Z0-9]|ghp_)' .
- *     └ exit 0 · 13 lines
  *
- * There is deliberately no `Batch N/N · succeeded` header and no tree
- * connectors. The header repeated on every parallel spawn while saying
- * nothing the rows do not: each row already carries its own status, so an
- * aggregate one is noise. Claude Code collapses the whole run to a dim
- * "Ran 2 shell commands" instead; keeping the rows is the more informative
- * half of that trade, dropping the chrome is the quieter half.
+ * Two or more calls fired together hang off one disclosure header, drawn in
+ * the same grammar as a thinking block (`●` pulsing while live, `▾` once
+ * done), with each call on one line and its outcome at the end:
  *
- * NEAT_RENDER_BATCH=1 restores the header and tree connectors.
- * NEAT_RENDER_RULES=1 restores the horizontal rules around a run.
+ *   ▾ 3 tool calls · 1.4s
+ *   ├─ ● Read agent/skills/pi-config-sync/SKILL.md · 115 lines
+ *   ├─ ● Bash $ ls -la ~/dotfiles/config/pi/ · exit 0 · 14 lines
+ *   └─ ● grep "defaultTools" in agent/settings.json · 18 results
+ *
+ * The header only says what the rows cannot: how many, how long overall, and
+ * how many failed. The old `Batch N/N · succeeded` line repeated every row's
+ * own status and was dropped for exactly that.
+ *
+ * Calls from consecutive assistant messages group too, as long as nothing
+ * visible sits between them.
+ *
+ * NEAT_RENDER_BATCH=0 stacks a group as plain bulleted rows instead.
+ * NEAT_RENDER_RULES=1 adds horizontal rules around a group.
  */
 function renderRun(run: ToolRow[], theme: ThemeLike, width: number, rules: boolean): string[] {
 	const render = (r: ToolRow, w: number) =>
@@ -944,6 +1063,7 @@ function renderRun(run: ToolRow[], theme: ThemeLike, width: number, rules: boole
 
 	/** One call as a bulleted row; continuation lines align under the text. */
 	const bulleted = (r: ToolRow): string[] => {
+		GROUPED.delete(r as unknown as object);
 		// An expanded (ctrl+o) row is a frame — or pi's box — which carries its
 		// own chrome. A bullet there sat alone on the box's blank first line.
 		if (r.expanded) return render(r, Math.max(8, width - pad.length)).map((l) => (l ? pad + l : l));
@@ -954,41 +1074,87 @@ function renderRun(run: ToolRow[], theme: ThemeLike, width: number, rules: boole
 		);
 	};
 
-	if (run.length === 1 || !on("NEAT_RENDER_BATCH")) {
+	// Batch members that render nothing (a commit's siblings) neither count
+	// nor take a tree slot.
+	const shown = run.filter((r) => {
+		try {
+			return !summarize(r).hidden;
+		} catch {
+			return true;
+		}
+	});
+	if (shown.length < 2 || off("NEAT_RENDER_BATCH")) {
 		return run.flatMap(bulleted);
 	}
 
-	// ── opt-in legacy chrome ────────────────────────────────────────────────
-	const running = run.some((r) => r.isPartial);
-	const failed = run.some((r) => r.result?.isError === true);
-	const status = running ? "running" : failed ? "failed" : "succeeded";
-	const sep = theme.fg("dim", " · ");
+	// Rows first: drawing a row is what stamps its end time, which the
+	// header's total needs on the very frame the group finishes.
+	const body: string[] = [];
+	// ── rows ────────────────────────────────────────────────────────────────
+	const branch = (s: string) => theme.fg("dim", s);
+	shown.forEach((child, idx) => {
+		const last = idx === shown.length - 1;
+		const fork = branch(last ? "└─ " : "├─ ");
+		const trunk = branch(last ? "   " : "│  ");
+		const node = child as unknown as object;
+		GROUPED.add(node);
+		if (child.expanded) {
+			// A frame brings its own chrome; just hang it off the tree.
+			render(child, Math.max(8, width - pad.length - 3)).forEach((line, li) => {
+				body.push(pad + (li === 0 ? fork : trunk) + line);
+			});
+			return;
+		}
+		const lines = render(child, Math.max(8, width - pad.length - 5));
+		const callLine = LEAD_LINES.get(child) ?? 0;
+		lines.forEach((line, li) => {
+			// A `# remark` sits above its call, on the trunk it belongs to.
+			const lead =
+				li < callLine
+					? branch("│  ")
+					: li === callLine
+						? `${fork}${dotFor(child)} `
+						: `${trunk}  `;
+			body.push(pad + lead + line);
+		});
+	});
 
-	const header =
-		`${pad}${theme.fg(running ? "warning" : failed ? "error" : "accent", "●")} ` +
-		theme.bold(theme.fg("toolTitle", `Batch ${run.length}/${run.length}`)) +
-		sep +
-		theme.fg(running ? "warning" : failed ? "error" : "success", status) +
-		sep +
-		theme.fg("dim", "ctrl+o to inspect");
+	// ── header ──────────────────────────────────────────────────────────────
+	const running = shown.some((r) => r.isPartial);
+	const failures = shown.filter((r) => r.result?.isError === true).length;
+	const sep = theme.fg("dim", " · ");
+	const timer = !off("NEAT_RENDER_TIMER");
+	const starts = shown
+		.map((r) => RUN_STARTS.get(r as unknown as object))
+		.filter((s): s is number => s !== undefined);
+	const first = starts.length > 0 ? Math.min(...starts) : undefined;
+	let clock = "";
+	if (timer && first !== undefined) {
+		if (running) {
+			if (Date.now() - first >= TIMER_AFTER_MS) clock = elapsedLabel(first);
+		} else {
+			// Wall time of the whole group. A member with no stamps finished
+			// before it was ever drawn running, so it cannot be the last one.
+			const ends = shown
+				.map((r) => RUN_ENDS.get(r as unknown as object))
+				.filter((e): e is number => e !== undefined);
+			const total = ends.length > 0 ? Math.max(...ends) - first : 0;
+			if (total >= DURATION_AFTER_MS) clock = durationLabel(total);
+		}
+	}
+
+	const glyph = running
+		? theme.fg(pulseOn() && !off("NEAT_RENDER_PULSE") ? "warning" : "dim", "●")
+		: theme.fg("dim", "▾");
+	let header = `${pad}${glyph} ${theme.fg("muted", `${shown.length} tool calls`)}`;
+	if (running) header += sep + theme.fg("muted", "running");
+	if (clock) header += sep + theme.fg("dim", clock);
+	if (failures > 0) header += sep + theme.fg("error", `${failures} failed`);
 
 	const out: string[] = [];
 	const rule = () => pad + theme.fg("borderMuted", "─".repeat(Math.max(0, width - pad.length)));
 	if (rules) out.push(rule());
-	out.push(header);
-
-	run.forEach((child, idx) => {
-		const last = idx === run.length - 1;
-		const lines = render(child, Math.max(8, width - pad.length - 5));
-		const first = LEAD_LINES.get(child) ?? 0;
-		lines.forEach((line, li) => {
-			const lead =
-				li === first
-					? pad + theme.fg("dim", last ? "└─ " : "├─ ")
-					: pad + theme.fg("dim", li < first || !last ? "│  " : "   ");
-			out.push(lead + line);
-		});
-	});
+	out.push(truncateToWidth(header, width), ...body);
 	if (rules) out.push(rule());
 	return out;
 }
@@ -1000,13 +1166,13 @@ function renderRun(run: ToolRow[], theme: ThemeLike, width: number, rules: boole
  * block, and an expanded one as a wall of dim italic text. This gives each
  * block one line that says what it was about, the way opencode does:
  *
- *   ● Thinking: Inspecting the PR workflow         while it streams (pulsing)
- *   ▸ Thought: Inspecting the PR workflow · ~340 tokens     collapsed
- *   ▾ Thought: Inspecting the PR workflow · ~340 tokens     expanded, then the
- *       reasoning, indented under it                        text itself
+ *   ● Thinking · ~340 tokens         while it streams (pulsing)
+ *   ▸ Thinking · ~340 tokens         collapsed
+ *   ▾ Thinking · ~340 tokens         expanded, then the reasoning,
+ *       indented under it             text itself
  *
- * The title is the reasoning's bold opening line when it has one (OpenAI-style
- * summaries start "**Title**"), else its first sentence.
+ * The arrow tells you whether the reasoning is shown: ▾ pointing down means
+ * the content hangs below the header, ▸ means it is folded away.
  *
  * Nothing about visibility changes: pi still decides what is open (Ctrl+T for
  * all blocks, a click for one) and still owns each block's MouseRegion. After
@@ -1043,35 +1209,12 @@ function thinkingRuns(content: ContentBlock[]): ThinkingRun[] {
 	return runs;
 }
 
-/** The bold opening title when there is one, else the first sentence, as plain text. */
-export function thinkingTitle(text: string): string {
-	const bold = /^\*\*([^*\n]+)\*\*(?:\r?\n\r?\n|$)/.exec(text.trim());
-	if (bold) return bold[1].trim();
-	// First prose line: skip code fences and what they enclose.
-	let inFence = false;
-	let line = "";
-	for (const l of text.split("\n")) {
-		if (FENCE_RE.test(l)) {
-			inFence = !inFence;
-			continue;
-		}
-		if (!inFence && l.trim()) {
-			line = l;
-			break;
-		}
-	}
-	const plain = line
-		.replace(/[*_`#>]+/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
-	const sentence = /^(.{12,}?[.!?])(?:\s|$)/.exec(plain)?.[1] ?? plain;
-	return sentence.length > 72 ? `${sentence.slice(0, 71).trimEnd()}…` : sentence;
-}
 
 function tokenCount(chars: number): string {
 	const n = Math.max(1, Math.round(chars / 4));
 	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
+
 
 class ThinkingView {
 	private readonly run: ThinkingRun;
@@ -1087,19 +1230,19 @@ class ThinkingView {
 	render(width: number): string[] {
 		const theme = state.theme;
 		if (!theme) return this.body?.render(width) ?? [];
-		const title = thinkingTitle(this.run.text);
+		const tokens = theme.fg("dim", `· ~${tokenCount(this.run.text.length)} tokens`);
 		let head: string;
 		if (!this.run.done) {
 			const dot = theme.fg(pulseOn() && !off("NEAT_RENDER_PULSE") ? "warning" : "dim", "●");
-			head = `${dot} ${theme.fg("thinkingText", "Thinking")}${title ? theme.fg("dim", `: ${title}`) : ""}`;
+			head = `${dot} ${theme.fg("thinkingText", "Thinking")} ${tokens}`;
 		} else {
+			// ▾ when the reasoning hangs below, ▸ when folded away.
 			const arrow = theme.fg("dim", this.body ? "▾" : "▸");
-			const detail = [title, `~${tokenCount(this.run.text.length)} tokens`].filter(Boolean).join(" · ");
-			head = `${arrow} ${theme.fg("thinkingText", "Thought")}${theme.fg("dim", `: ${detail}`)}`;
+			head = `${arrow} ${theme.fg("thinkingText", "Thinking")} ${tokens}`;
 		}
 		const lines = [truncateToWidth(" ".repeat(this.pad) + head, width)];
 		if (this.body) {
-			// pi's markdown keeps its own pad, so the text hangs under the title.
+			// pi's markdown keeps its own pad, so the text hangs under the header.
 			const indent = "  ";
 			for (const line of this.body.render(Math.max(8, width - indent.length))) lines.push(indent + line);
 		}
