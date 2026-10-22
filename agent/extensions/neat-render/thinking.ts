@@ -32,6 +32,25 @@ import type { Renderable } from "./row.ts";
 
 export const THINK_PATCH = Symbol.for("dr.pi.neatRender.thinking.v1");
 
+/**
+ * A folded turn speaks for its reasoning through the summary line, so the
+ * blocks inside it must draw nothing. The flag is set around one synchronous
+ * `render()` call by the turn renderer, which keeps the block's own line count
+ * — and therefore pi's mouse hit-testing — exact.
+ */
+let folded = 0;
+
+export function withFolded<T>(fn: () => T): T {
+	folded += 1;
+	try {
+		return fn();
+	} finally {
+		folded -= 1;
+	}
+}
+
+export const isFolded = () => folded > 0;
+
 export type ContentBlock = { type?: string; thinking?: string };
 export type ThinkingRun = { text: string; done: boolean };
 export type AssistantInternals = {
@@ -126,6 +145,7 @@ export class ThinkingView {
 
 	render(width: number): string[] {
 		const theme = state.theme;
+		if (isFolded()) return [];
 		if (!theme) return this.body?.render(width) ?? [];
 		const pad = " ".repeat(this.pad);
 		const elapsed = runDuration(this.start, this.run.done ? (this.end ?? Date.now()) : undefined);

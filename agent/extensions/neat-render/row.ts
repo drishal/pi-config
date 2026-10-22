@@ -157,8 +157,9 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 	const verb = verbText(theme, summary.verb.padEnd(verbWidth));
 
 	// Running: the command moves to its own wrapped `└ $` block, so the
-	// header carries only the verb and the status.
-	if (running && subject) {
+	// header carries only the verb and the status. Inside a tree the row is
+	// already hanging off a connector, so the command stays on the call line.
+	if (running && subject && !tree) {
 		const status = live("running…") + (timerText ? `${sep}${factText(theme, timerText)}` : "");
 		const header = fit(`${verb}${sep}${status}`, width);
 		const lead = factText(theme, "└ ");
@@ -253,7 +254,7 @@ export type ToolInternals = {
 };
 
 const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
-const isBlank = (line: string) => line.replace(ANSI_RE, "").trim() === "";
+export const isBlank = (line: string) => line.replace(ANSI_RE, "").trim() === "";
 
 /** Drop the blank padding lines renderers put above and below their text. */
 export function trimBlank(lines: string[]): string[] {

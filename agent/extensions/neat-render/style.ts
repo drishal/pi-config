@@ -33,7 +33,11 @@ export type RenderFn = (this: unknown, width: number) => string[];
 export type Patchable = { render: RenderFn; [key: symbol]: unknown };
 
 /** Shared across the patches; filled in on session_start. */
-export const state: { theme?: ThemeLike } = {};
+export const state: {
+	theme?: ThemeLike;
+	/** pi's UI handle: the fold reads `getToolsExpanded()` off it. */
+	ui?: { getToolsExpanded?(): boolean };
+} = {};
 
 export const off = (name: string) => process.env[name] === "0";
 

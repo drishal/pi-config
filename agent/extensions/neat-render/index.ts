@@ -1,7 +1,7 @@
 /**
  * neat-render — compact, Claude-Code-shaped transcript chrome for pi.
  *
- * Renders three things:
+ * One turn, folded:
  *
  *   ❯ In a batch, launch a few read/grep commands.
  *
@@ -10,6 +10,17 @@
  *   ● Pi loads a directory extension from its index.ts.
  *
  *   deepseek-v4.1-flash · 18.2s · 88 tok/s · $0.007
+ *
+ * ── What Ctrl+O means now ─────────────────────────────────────────────────
+ * pi's tool-output toggle opens every turn at once: each call drawn as a full
+ * omp-style frame, thinking back to its one-line disclosures. With it off, a
+ * finished turn stays folded into its summary line, and a running one shows
+ * its live tree.
+ *
+ * ── Files ─────────────────────────────────────────────────────────────────
+ * style.ts palette and glyphs · tools.ts the per-tool registry · row.ts one
+ * call · turn.ts the fold, the answer and the footer · thinking.ts reasoning
+ * lines · table.ts compact markdown tables · clock.ts the shared ticker.
  *
  * ── Why this is a renderer, not a tool wrapper ─────────────────────────────
  * The obvious way to get compact rows is to re-register `read`/`bash` with
@@ -42,8 +53,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ROW_PATCH, installRows } from "./row.ts";
-import { CARD_PATCH, GROUP_PATCH, installCard, installGrouping } from "./turn.ts";
-import { THINK_PATCH, foldThinkingFences, installThinking, uninstallThinking } from "./thinking.ts";
+import { CARD_PATCH, GROUP_PATCH, installCard, installTurns } from "./turn.ts";
+import { foldThinkingFences, installThinking, uninstallThinking } from "./thinking.ts";
 import { clearClock } from "./clock.ts";
 import { type Patchable, type RenderFn, type ThemeLike, off, state } from "./style.ts";
 
@@ -66,11 +77,13 @@ export default function (pi: ExtensionAPI) {
 	const card = installCard();
 	const thinking = installThinking();
 	const rows = installRows();
-	// Grouping composes the row renderer, so it only makes sense with it.
-	const group = rows ? installGrouping() : undefined;
+	// The turn renderer composes the row renderer; both fall back to pi's own
+	// output on their own if pi's internals do not look the way they expect.
+	const turns = installTurns();
 
 	pi.on("session_start", (_event, ctx) => {
 		state.theme = ctx.ui.theme as unknown as ThemeLike;
+		state.ui = ctx.ui;
 	});
 
 	let released = false;
@@ -78,7 +91,7 @@ export default function (pi: ExtensionAPI) {
 		if (released) return;
 		released = true;
 		clearClock();
-		uninstall(group, GROUP_PATCH);
+		uninstall(turns, GROUP_PATCH);
 		uninstall(rows, ROW_PATCH);
 		uninstall(card, CARD_PATCH);
 		uninstallThinking(thinking);
