@@ -56,6 +56,7 @@ import { ROW_PATCH, installRows } from "./row.ts";
 import { CARD_PATCH, GROUP_PATCH, installCard, installTurns } from "./turn.ts";
 import { foldThinkingFences, installThinking, uninstallThinking } from "./thinking.ts";
 import { clearClock } from "./clock.ts";
+import { installTable, uninstallTable } from "./table.ts";
 import { type Patchable, type RenderFn, type ThemeLike, off, state } from "./style.ts";
 
 /* ── wiring ────────────────────────────────────────────────────────────── */
@@ -77,6 +78,7 @@ export default function (pi: ExtensionAPI) {
 	const card = installCard();
 	const thinking = installThinking();
 	const rows = installRows();
+	const table = installTable();
 	// The turn renderer composes the row renderer; both fall back to pi's own
 	// output on their own if pi's internals do not look the way they expect.
 	const turns = installTurns();
@@ -95,5 +97,6 @@ export default function (pi: ExtensionAPI) {
 		uninstall(rows, ROW_PATCH);
 		uninstall(card, CARD_PATCH);
 		uninstallThinking(thinking);
+		uninstallTable(table);
 	});
 }
