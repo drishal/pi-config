@@ -13,8 +13,9 @@
  *
  * ── What Ctrl+O means now ─────────────────────────────────────────────────
  * pi's tool-output toggle opens every turn at once: each call drawn as a full
- * omp-style frame, thinking back to its one-line disclosures. With it off, a
- * finished turn stays folded into its summary line, and a running one shows
+ * omp-style frame, reasoning at full length. With it off, a finished turn
+ * folds its calls into one summary line — reasoning stays as one-line
+ * disclosures (`▸ Thought 2.1s — first sentence…`) — and a running turn shows
  * its live tree.
  *
  * ── Files ─────────────────────────────────────────────────────────────────

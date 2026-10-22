@@ -33,10 +33,11 @@ import type { Renderable } from "./row.ts";
 export const THINK_PATCH = Symbol.for("dr.pi.neatRender.thinking.v1");
 
 /**
- * A folded turn speaks for its reasoning through the summary line, so the
- * blocks inside it must draw nothing. The flag is set around one synchronous
- * `render()` call by the turn renderer, which keeps the block's own line count
- * — and therefore pi's mouse hit-testing — exact.
+ * A folded turn shows each reasoning run as its collapsed one-liner —
+ * `▸ Thought 2.1s — first sentence…` — instead of the wall of prose. The flag
+ * is set around one synchronous `render()` call by the turn renderer, which
+ * keeps the block's own line count, and therefore pi's mouse hit-testing,
+ * exact.
  */
 let folded = 0;
 
@@ -145,8 +146,9 @@ export class ThinkingView {
 
 	render(width: number): string[] {
 		const theme = state.theme;
-		if (isFolded()) return [];
 		if (!theme) return this.body?.render(width) ?? [];
+		// A folded turn keeps the disclosure line and drops the prose under it.
+		const body = isFolded() ? undefined : this.body;
 		const pad = " ".repeat(this.pad);
 		const elapsed = runDuration(this.start, this.run.done ? (this.end ?? Date.now()) : undefined);
 
@@ -164,14 +166,14 @@ export class ThinkingView {
 		}
 
 		// ▾ when the reasoning hangs below, ▸ when folded away.
-		const arrow = paint(theme, "fact", this.body ? glyph.open : glyph.shut);
+		const arrow = paint(theme, "fact", body ? glyph.open : glyph.shut);
 		const head = `${arrow} ${paint(theme, "thought", "Thought")}${elapsed ? ` ${factText(theme, elapsed)}` : ""}`;
 		const lines: string[] = [];
-		if (this.body) {
+		if (body) {
 			lines.push(fit(`${pad}${head}`, width));
 			const bar = paint(theme, "rule", glyph.bar);
 			const room = Math.max(8, width - pad.length - 2);
-			for (const line of this.body.render(room)) lines.push(fit(`${pad}${bar} ${line}`, width));
+			for (const line of body.render(room)) lines.push(fit(`${pad}${bar} ${line}`, width));
 			return lines;
 		}
 		const summary = oneLine(firstSentence(this.run.text), Math.max(8, width - visibleWidth(head) - 4));

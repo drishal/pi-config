@@ -10,9 +10,10 @@
  *     deepseek-v4.1-flash · 18.2s · 88 tok/s · $0.0071
  *
  * While the turn is running, the work is live: thinking rolls on one line and
- * the calls hang off a tree. Once the turn is done the work folds into one
- * summary line, and Ctrl+O (pi's tool-output toggle) opens every turn again —
- * rows at full size, thinking back to its one-liners.
+ * the calls hang off a tree. Once the turn is done the calls fold into one
+ * summary line; reasoning keeps its one-line disclosures (`▸ Thought 2.1s —
+ * …`), and Ctrl+O (pi's tool-output toggle) opens every turn again: rows at
+ * full size, reasoning at full length.
  *
  * Spacing is owned here: exactly one blank line between prompt, activity,
  * answer and footer, and none inside the activity block.
@@ -211,9 +212,12 @@ function foldedMessage(
 		.filter((line, index, all) => !(isBlank(line) && index > 0 && isBlank(all[index - 1])));
 	if (!bullet) return lines;
 	const dot = paint(theme, "answer", glyph.bullet);
+	const thought = `${glyph.shut} Thought`;
 	let marked = false;
 	return lines.map((line) => {
 		if (isBlank(line)) return line;
+		// Reasoning keeps its own indent above the answer.
+		if (!marked && plain(line).startsWith(thought)) return line;
 		if (marked) return `  ${line}`;
 		marked = true;
 		return `${dot} ${line}`;
