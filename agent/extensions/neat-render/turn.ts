@@ -411,7 +411,7 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
 		out.push(gap, { lines, source });
 	};
 
-	blocks.forEach((block, index) => {
+	const draw = (block: Block, index: number) => {
 		if (block.kind === "activity") {
 			if (!folded) push(renderRun(block.rows, theme, width), NOWHERE);
 			else if (index === lastActivity) push(summaryLine(allRows, theme, width), NOWHERE);
@@ -423,12 +423,24 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
 			return;
 		}
 		push(block.lines, block.comp);
+	};
+
+	// The answer closes the turn. Anything pi appends afterwards — a startup
+	// warning, a compaction notice — belongs below the footer, not inside the
+	// work it is reporting on.
+	const answerIndex = blocks.findIndex((block) => block.kind === "assistant" && block.answer);
+	const cut = answerIndex >= 0 ? answerIndex : blocks.length - 1;
+	blocks.forEach((block, index) => {
+		if (index <= cut) draw(block, index);
 	});
 
 	if (!live) {
 		const footer = footerLine(parts, theme, width);
 		if (footer) push([footer], NOWHERE);
 	}
+	blocks.forEach((block, index) => {
+		if (index > cut) draw(block, index);
+	});
 	// pi brackets an assistant message in OSC 133 zones for shell integration;
 	// the prompt already carries the pair, so the body drops them.
 	for (const fragment of out.slice(1)) fragment.lines = fragment.lines.map((line) => line.replace(OSC133_ZONE_RE, ""));
