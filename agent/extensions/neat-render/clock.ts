@@ -8,6 +8,8 @@
  * invalidates every component that asked to be watched.
  */
 
+import { state } from "./style.ts";
+
 /** When a row started being partial, per ToolExecutionComponent. */
 export const RUN_STARTS = new WeakMap<object, number>();
 /** When a stamped row was first rendered finished, per ToolExecutionComponent. */
@@ -55,6 +57,8 @@ export function watch(component: Watcher): void {
 function beat(): void {
 	timer = undefined;
 	tick += 1;
+	// pi repaints on request; clearing a cache is not a repaint.
+	state.renderer?.requestRender?.();
 	for (const [component, seen] of watchers) {
 		// Not seen for a whole tick and still here: it stopped being live.
 		if (tick - seen > 1) {

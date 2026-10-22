@@ -37,6 +37,11 @@ export const state: {
 	theme?: ThemeLike;
 	/** pi's UI handle: the fold reads `getToolsExpanded()` off it. */
 	ui?: { getToolsExpanded?(): boolean };
+	/**
+	 * pi's screen, taken from the first tool row it renders. Renderers repaint
+	 * on request only, so a pulse, a running timer or a click has to ask.
+	 */
+	renderer?: { requestRender?(): void };
 } = {};
 
 export const off = (name: string) => process.env[name] === "0";
