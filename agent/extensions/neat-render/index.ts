@@ -9,19 +9,20 @@
  *   ▸ Worked 18s · read 2 files, ran 3 commands, 1 search · 1 failed
  *   ● Pi loads a directory extension from its index.ts.
  *
- *   deepseek-v4.1-flash · 18.2s · 88 tok/s · $0.007
- *
  * ── What Ctrl+O means now ─────────────────────────────────────────────────
  * pi's tool-output toggle opens every turn at once: each call drawn as a full
- * omp-style frame, reasoning at full length. With it off, a finished turn
- * folds its calls into one summary line — reasoning stays as one-line
- * disclosures (`▸ Thought 2.1s — first sentence…`) — and a running turn shows
- * its live tree.
+ * omp-style frame. With it off, a finished turn folds its *calls* into one
+ * summary line; the prose, the reasoning and the answer stay exactly as pi
+ * draws them. A running turn shows its calls as a live tree.
+ *
+ * Reasoning follows pi's own Ctrl+T, untouched: visible means the block is
+ * shown at length (under a `│` bar), hidden means one `▸ Thought 2.1s — …`
+ * disclosure line.
  *
  * ── Files ─────────────────────────────────────────────────────────────────
  * style.ts palette and glyphs · tools.ts the per-tool registry · row.ts one
- * call · turn.ts the fold, the answer and the footer · thinking.ts reasoning
- * lines · table.ts compact markdown tables · clock.ts the shared ticker.
+ * call · turn.ts the fold and the answer · thinking.ts reasoning lines ·
+ * table.ts compact markdown tables · clock.ts the shared ticker.
  *
  * ── Why this is a renderer, not a tool wrapper ─────────────────────────────
  * The obvious way to get compact rows is to re-register `read`/`bash` with

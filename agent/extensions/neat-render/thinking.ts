@@ -32,25 +32,7 @@ import type { Renderable } from "./row.ts";
 
 export const THINK_PATCH = Symbol.for("dr.pi.neatRender.thinking.v1");
 
-/**
- * A folded turn shows each reasoning run as its collapsed one-liner —
- * `▸ Thought 2.1s — first sentence…` — instead of the wall of prose. The flag
- * is set around one synchronous `render()` call by the turn renderer, which
- * keeps the block's own line count, and therefore pi's mouse hit-testing,
- * exact.
- */
-let folded = 0;
 
-export function withFolded<T>(fn: () => T): T {
-	folded += 1;
-	try {
-		return fn();
-	} finally {
-		folded -= 1;
-	}
-}
-
-export const isFolded = () => folded > 0;
 
 export type ContentBlock = { type?: string; thinking?: string };
 export type ThinkingRun = { text: string; done: boolean };
@@ -147,8 +129,9 @@ export class ThinkingView {
 	render(width: number): string[] {
 		const theme = state.theme;
 		if (!theme) return this.body?.render(width) ?? [];
-		// A folded turn keeps the disclosure line and drops the prose under it.
-		const body = isFolded() ? undefined : this.body;
+		// pi's Ctrl+T decides whether the prose is shown; without it (hidden),
+		// the run keeps its disclosure line.
+		const body = this.body;
 		const pad = " ".repeat(this.pad);
 		const elapsed = runDuration(this.start, this.run.done ? (this.end ?? Date.now()) : undefined);
 
