@@ -1,19 +1,19 @@
 /**
  * thinking — one line for a reasoning block, not a wall of italic prose.
  *
- *   ● Thinking 3s │ …let me do one more round of distinct tools
- *   ▸ Thought 2.1s — The bug is in the batch commit path…
- *   ▾ Thought 2.1s
- *     │ The bug is in the batch commit path: the last member carries the
- *     │ combined diff, so the earlier rows render nothing.
+ *   ● Thinking 3s │ …let me do one more round of distinct tools   live
+ *   ▸ Thinking 2.1s — The bug is in the batch commit path…      hidden
+ *   └─ Thinking 2.1s                                            shown
+ *      The bug is in the batch commit path: the last member carries the
+ *      combined diff, so the earlier rows render nothing.
  *
  * While the block is still streaming the line rolls with the latest thought,
  * so a live turn shows what is happening now rather than everything so far.
  *
- * Nothing about visibility changes: pi still decides what is open (Ctrl+T for
- * all blocks, a click for one) and still owns each block's MouseRegion. After
- * pi rebuilds the message this only swaps what the region draws, so clicks and
- * Ctrl+T keep working and no pi logic is duplicated.
+ * Visibility is pi's alone: Ctrl+T for all blocks, a click for one. The block
+ * keeps its MouseRegion, so clicks and Ctrl+T keep working and no pi logic is
+ * duplicated. `Thinking` is the word here because it is what the model is
+ * doing, not what it finished doing.
  */
 
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
@@ -148,19 +148,22 @@ export class ThinkingView {
 			return [fit(`${pad}${head}${preview ? ` ${bar} ${noteText(theme, preview)}` : ""}`, width)];
 		}
 
-		// ▾ when the reasoning hangs below, ▸ when folded away.
-		const arrow = paint(theme, "fact", body ? glyph.open : glyph.shut);
-		const head = `${arrow} ${paint(theme, "thought", "Thought")}${elapsed ? ` ${factText(theme, elapsed)}` : ""}`;
+		// Shown: an elbow names the block and the reasoning hangs under the
+		// label, the way a thought tree reads — no bar to trip over on every
+		// line. Hidden: one disclosure line with its first sentence.
 		const lines: string[] = [];
 		if (body) {
-			lines.push(fit(`${pad}${head}`, width));
-			const bar = paint(theme, "rule", glyph.bar);
-			const room = Math.max(8, width - pad.length - 2);
-			for (const line of body.render(room)) lines.push(fit(`${pad}${bar} ${line}`, width));
+			const elbow = paint(theme, "rule", "└─");
+			const head = `${pad}${elbow} ${paint(theme, "thought", "Thinking")}${elapsed ? ` ${factText(theme, elapsed)}` : ""}`;
+			lines.push(fit(head, width));
+			const hang = " ".repeat(this.pad + 3);
+			const room = Math.max(8, width - hang.length);
+			for (const line of body.render(room)) lines.push(fit(`${hang}${line}`, width));
 			return lines;
 		}
+		const head = `${pad}${paint(theme, "fact", glyph.shut)} ${paint(theme, "thought", "Thinking")}${elapsed ? ` ${factText(theme, elapsed)}` : ""}`;
 		const summary = oneLine(firstSentence(this.run.text), Math.max(8, width - visibleWidth(head) - 4));
-		lines.push(fit(`${pad}${head}${summary ? ` ${paint(theme, "fact", "—")} ${summary}` : ""}`, width));
+		lines.push(fit(`${head}${summary ? ` ${paint(theme, "fact", "—")} ${summary}` : ""}`, width));
 		return lines;
 	}
 
