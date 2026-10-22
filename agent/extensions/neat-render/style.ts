@@ -35,8 +35,6 @@ export type Patchable = { render: RenderFn; [key: symbol]: unknown };
 /** Shared across the patches; filled in on session_start. */
 export const state: {
 	theme?: ThemeLike;
-	/** pi's UI handle: the fold reads `getToolsExpanded()` off it. */
-	ui?: { getToolsExpanded?(): boolean };
 	/**
 	 * pi's screen, taken from the first tool row it renders. Renderers repaint
 	 * on request only, so a pulse, a running timer or a click has to ask.

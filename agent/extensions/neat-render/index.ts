@@ -88,7 +88,6 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", (_event, ctx) => {
 		state.theme = ctx.ui.theme as unknown as ThemeLike;
-		state.ui = ctx.ui;
 	});
 
 	let released = false;
