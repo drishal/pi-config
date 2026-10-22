@@ -44,7 +44,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ROW_PATCH, installRows } from "./row.ts";
 import { CARD_PATCH, GROUP_PATCH, installCard, installGrouping } from "./turn.ts";
 import { THINK_PATCH, foldThinkingFences, installThinking, uninstallThinking } from "./thinking.ts";
-import { clearPulses } from "./clock.ts";
+import { clearClock } from "./clock.ts";
 import { type Patchable, type RenderFn, type ThemeLike, off, state } from "./style.ts";
 
 /* ── wiring ────────────────────────────────────────────────────────────── */
@@ -59,15 +59,13 @@ export function uninstall(proto: Patchable | undefined, key: symbol): void {
 export default function (pi: ExtensionAPI) {
 	if (off("NEAT_RENDER")) return;
 
-	if (!off("NEAT_RENDER_FOLD_THINKING")) {
-		pi.registerMarkdownTransformer((markdown, context) =>
-			context.messageType === "assistant-thinking" ? foldThinkingFences(markdown) : markdown,
-		);
-	}
+	pi.registerMarkdownTransformer((markdown, context) =>
+		context.messageType === "assistant-thinking" ? foldThinkingFences(markdown) : markdown,
+	);
 
-	const card = off("NEAT_RENDER_CARD") ? undefined : installCard();
-	const thinking = off("NEAT_RENDER_THINKING") ? undefined : installThinking();
-	const rows = off("NEAT_RENDER_ROWS") ? undefined : installRows();
+	const card = installCard();
+	const thinking = installThinking();
+	const rows = installRows();
 	// Grouping composes the row renderer, so it only makes sense with it.
 	const group = rows ? installGrouping() : undefined;
 
@@ -79,7 +77,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", () => {
 		if (released) return;
 		released = true;
-		clearPulses();
+		clearClock();
 		uninstall(group, GROUP_PATCH);
 		uninstall(rows, ROW_PATCH);
 		uninstall(card, CARD_PATCH);

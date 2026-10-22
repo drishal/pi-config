@@ -1,38 +1,17 @@
 /**
  * clock — the one place time enters the transcript.
  *
- * pi repaints on change, not on a clock, so anything live (a pulsing bullet,
- * a running timer) has to arm its own repaint. One chain per component would
- * mean a timer per row; here a single ticker runs while anything is live and
- * invalidates every watching component.
+ * pi repaints on change, not on a clock, so anything live (a pulsing bullet, a
+ * running timer) has to arm its own repaint. One chain per component would be
+ * a timer per row; here a single ticker runs while anything is live, pulses on
+ * a counter (so two live rows can never disagree about the phase), and
+ * invalidates every component that asked to be watched.
  */
 
-import { off } from "./style.ts";
-
-/* ── in-flight pulse ───────────────────────────────────────────────────── */
-
-/** Half-period of the bullet pulse, in ms. */
-export const PULSE_MS = 450;
-/** Timer handle parked on a component so only one is ever in flight. */
-export const PULSE_TIMER = Symbol.for("dr.pi.neatRender.pulse.v1");
-/** Every live timer, so session shutdown can cancel them. */
-export const pulseTimers = new Set<ReturnType<typeof setTimeout>>();
-
-/** Which half of the pulse we are in right now. */
-export function pulseOn(): boolean {
-	return Math.floor(Date.now() / PULSE_MS) % 2 === 0;
-}
-
-/* ── elapsed timer on running rows ─────────────────────────────────────── */
-
-/**
- * When a row started being partial, per ToolExecutionComponent. pi recreates
- * those between turns, and an execution only goes partial when it actually
- * starts running, so the stamp is taken on the first partial render.
- */
+/** When a row started being partial, per ToolExecutionComponent. */
 export const RUN_STARTS = new WeakMap<object, number>();
-/** Partial rows whose elapsed is past the timer threshold. */
-export const timedRows = new WeakSet<object>();
+/** When a stamped row was first rendered finished, per ToolExecutionComponent. */
+export const RUN_ENDS = new WeakMap<object, number>();
 
 /**
  * How long a call must run before the timer appears, in ms. Below this the
@@ -40,11 +19,62 @@ export const timedRows = new WeakSet<object>();
  * everything says the call is finishing, and then it is.
  */
 export const TIMER_AFTER_MS = 1500;
-/** How often a timed row invalidates while pulse is off. */
-export const TIMER_TICK_MS = 500;
+/** Durations under this stay off the row; a column of "0.0s" is noise. */
+export const DURATION_AFTER_MS = 1000;
 
-/** When a stamped row was first rendered finished, per ToolExecutionComponent. */
-export const RUN_ENDS = new WeakMap<object, number>();
+/** Half-period of the live pulse, in ms. Also the tick interval. */
+const TICK_MS = 450;
+
+type Watcher = { invalidate?(): void };
+
+/** Components that asked to be repainted while they are live. */
+const watchers = new Map<Watcher, number>();
+let tick = 0;
+let timer: ReturnType<typeof setTimeout> | undefined;
+
+/** Which half of the pulse we are in right now. */
+export function pulseOn(): boolean {
+	return tick % 2 === 0;
+}
+
+/**
+ * Keep a live component repainting.
+ *
+ * A component calls this from render() for as long as it is live; the next
+ * tick repaints it, and if it is no longer live by then it does not call
+ * `watch` again, so the entry is pruned and the ticker stops by itself.
+ */
+export function watch(component: Watcher): void {
+	watchers.set(component, tick);
+	if (timer) return;
+	timer = setTimeout(beat, TICK_MS);
+	// Never let an animation frame hold the process open.
+	(timer as { unref?: () => void }).unref?.();
+}
+
+function beat(): void {
+	timer = undefined;
+	tick += 1;
+	for (const [component, seen] of watchers) {
+		// Not seen for a whole tick and still here: it stopped being live.
+		if (tick - seen > 1) {
+			watchers.delete(component);
+			continue;
+		}
+		try {
+			component.invalidate?.();
+		} catch {
+			/* component torn down mid-flight */
+		}
+	}
+	if (watchers.size > 0) watch(watchers.keys().next().value as Watcher);
+}
+
+export function clearClock(): void {
+	watchers.clear();
+	if (timer) clearTimeout(timer);
+	timer = undefined;
+}
 
 /** Elapsed since a row started running: "9s", "3m12s". */
 export function elapsedLabel(start: number): string {
@@ -65,48 +95,4 @@ export function tookMs(row: object): number | undefined {
 	const start = RUN_STARTS.get(row);
 	const end = RUN_ENDS.get(row);
 	return start !== undefined && end !== undefined ? end - start : undefined;
-}
-
-/** Durations under this stay off the row; a column of "0.0s" is noise. */
-export const DURATION_AFTER_MS = 1000;
-
-/**
- * Keep a running row repainting so its bullet can pulse.
- *
- * pi repaints on change, not on a clock, so a phase computed from Date.now()
- * would sit frozen on a long tool call — exactly when the feedback matters.
- * ToolExecutionComponent exposes `invalidate()`, so each render of a partial
- * row arms one unref'd timer that invalidates it, and the next render arms
- * the next. The chain stops on its own the moment the row stops being
- * partial, because only a partial row arms a timer.
- *
- * NEAT_RENDER_PULSE=0 turns it off and leaves a static bullet.
- */
-export function armPulse(component: unknown): void {
-	if (off("NEAT_RENDER_PULSE")) return;
-	const host = component as {
-		invalidate?: () => void;
-		[key: symbol]: unknown;
-	};
-	if (typeof host.invalidate !== "function") return;
-	if (host[PULSE_TIMER]) return; // one in flight is enough
-
-	const timer = setTimeout(() => {
-		pulseTimers.delete(timer);
-		host[PULSE_TIMER] = undefined;
-		try {
-			host.invalidate?.();
-		} catch {
-			/* component torn down mid-flight */
-		}
-	}, PULSE_MS);
-	// Never let an animation frame hold the process open.
-	(timer as { unref?: () => void }).unref?.();
-	pulseTimers.add(timer);
-	host[PULSE_TIMER] = timer;
-}
-
-export function clearPulses(): void {
-	for (const t of pulseTimers) clearTimeout(t);
-	pulseTimers.clear();
 }

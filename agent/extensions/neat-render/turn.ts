@@ -13,9 +13,11 @@ import {
 	type RenderFn,
 	type ThemeLike,
 	type ToolRow,
+	fit,
+	glyph,
 	inset,
-	off,
-	on,
+	noteText,
+	paint,
 	state,
 } from "./style.ts";
 import { summarize } from "./tools.ts";
@@ -26,17 +28,16 @@ import {
 	TIMER_AFTER_MS,
 	durationLabel,
 	elapsedLabel,
-	pulseOn,
 } from "./clock.ts";
-import { GROUPED, LEAD_LINES } from "./row.ts";
+import { GROUPED, LEAD_LINES, bullet, padVerbs } from "./row.ts";
+
+/* ── the prompt: a `❯` quote over a full-width fill strip ──────────────── */
+
+const OSC133_ZONE_START = "\x1b]133;A\x07";
+const OSC133_ZONE_END = "\x1b]133;B\x07";
+const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
 export const CARD_PATCH = Symbol.for("dr.pi.neatRender.card.v1");
-export const GROUP_PATCH = Symbol.for("dr.pi.neatRender.group.v1");
-/* ── patch 1: user message as a `❯` quote ─────────────────────────────── */
-
-export const OSC133_ZONE_START = "\x1b]133;A\x07";
-export const OSC133_ZONE_END = "\x1b]133;B\x07";
-export const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
 export function installCard(): Patchable | undefined {
 	const proto = UserMessageComponent?.prototype as unknown as Patchable | undefined;
@@ -50,15 +51,15 @@ export function installCard(): Patchable | undefined {
 		const text = (this as unknown as { text?: unknown }).text;
 		if (typeof text !== "string" || !text.trim()) return original.call(this, width);
 
-		// Claude Code draws the prompt as a `❯` quote over a plain
-		// full-width fill strip: no borders, so no box geometry to break.
-		// The raw text is wrapped and quoted directly, then each line is
-		// padded out to the full width and painted. Every painted line
-		// measures exactly `width`, which is all pi requires.
-		const mark = theme.fg("dim", "❯");
+		// Claude Code draws the prompt as a `❯` quote over a plain full-width
+		// fill strip: no borders, so no box geometry to break. The raw text is
+		// wrapped and quoted directly, then each line is padded out to the
+		// full width and painted. Every painted line measures exactly `width`,
+		// which is all pi requires.
+		const mark = noteText(theme, glyph.prompt);
 		const room = Math.max(8, width - 2);
-		// The `❯` opens the quote once, Claude-style: wrapped lines and
-		// later paragraphs indent under it instead of repeating the marker.
+		// The `❯` opens the quote once, Claude-style: wrapped lines and later
+		// paragraphs indent under it instead of repeating the marker.
 		const rows: string[] = [];
 		let opened = false;
 		for (const para of text.replace(/\n+$/, "").split("\n")) {
@@ -85,7 +86,9 @@ export function installCard(): Patchable | undefined {
 	return proto;
 }
 
-/* ── patch 3: batch grouping ───────────────────────────────────────────── */
+/* ── patch: one tree per run of tool calls ─────────────────────────────── */
+
+export const GROUP_PATCH = Symbol.for("dr.pi.neatRender.group.v1");
 
 /**
  * Container.render is a plain concat of child renders, so it is safe to
@@ -96,7 +99,6 @@ export function installGrouping(): Patchable | undefined {
 	const proto = Container?.prototype as unknown as Patchable | undefined;
 	if (!proto || typeof proto.render !== "function" || proto[GROUP_PATCH]) return undefined;
 	const original = proto.render;
-	const rules = on("NEAT_RENDER_RULES");
 
 	proto.render = function (width: number): string[] {
 		const theme = state.theme;
@@ -136,7 +138,7 @@ export function installGrouping(): Patchable | undefined {
 					break;
 				}
 			}
-			out.push(...renderRun(run, theme, width, rules), ...after);
+			out.push(...renderRun(run, theme, width), ...after);
 			i = end;
 		}
 		return out;
@@ -151,39 +153,26 @@ export function installGrouping(): Patchable | undefined {
  *
  * A lone call is a bulleted row; continuation lines align under its text:
  *
- *   ● Bash $ grep -rniE '(api[_-]?key|secret|token)' .
- *     └ exit 0 · 80 lines
+ *   ● Run $ grep -rniE '(api[_-]?key|secret|token)' .
+ *     └ 80 lines
  *
  * Two or more calls fired together hang off one disclosure header, drawn in
  * the same grammar as a thinking block (`●` pulsing while live, `▾` once
- * done), with each call on one line and its outcome at the end:
+ * done), with each call on one line and its outcome in a right-hand column:
  *
  *   ▾ 3 tool calls · 1.4s
- *   ├─ ● Read agent/skills/pi-config-sync/SKILL.md · 115 lines
- *   ├─ ● Bash $ ls -la ~/dotfiles/config/pi/ · exit 0 · 14 lines
- *   └─ ● grep "defaultTools" in agent/settings.json · 18 results
+ *   ├─ ● Read    agent/skills/pi-config-sync/SKILL.md   115 lines
+ *   ├─ ● Run     $ ls -la ~/dotfiles/config/pi/           14 lines
+ *   └─ ● Search  "defaultTools" in agent/settings.json    18 results
  *
  * The header only says what the rows cannot: how many, how long overall, and
- * how many failed. The old `Batch N/N · succeeded` line repeated every row's
- * own status and was dropped for exactly that.
- *
- * Calls from consecutive assistant messages group too, as long as nothing
- * visible sits between them.
- *
- * NEAT_RENDER_BATCH=0 stacks a group as plain bulleted rows instead.
- * NEAT_RENDER_RULES=1 adds horizontal rules around a group.
+ * how many failed. Calls from consecutive assistant messages group too, as
+ * long as nothing visible sits between them.
  */
-export function renderRun(run: ToolRow[], theme: ThemeLike, width: number, rules: boolean): string[] {
-	const render = (r: ToolRow, w: number) =>
-		(r as unknown as { render(x: number): string[] }).render(w);
+export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): string[] {
+	const render = (r: ToolRow, w: number) => (r as unknown as { render(x: number): string[] }).render(w);
 
 	const pad = inset();
-	// A running bullet alternates bright/dim so in-flight work reads as alive;
-	// both glyphs are one column, so this cannot affect line width.
-	const dotFor = (r: ToolRow) =>
-		r.isPartial
-			? theme.fg(pulseOn() ? "warning" : "dim", "●")
-			: theme.fg(r.result?.isError ? "error" : "accent", "●");
 
 	/** One call as a bulleted row; continuation lines align under the text. */
 	const bulleted = (r: ToolRow): string[] => {
@@ -194,7 +183,7 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number, rules
 		const lines = render(r, Math.max(8, width - pad.length - 2));
 		const lead = LEAD_LINES.get(r) ?? 0;
 		return lines.map((l, idx) =>
-			idx < lead ? `${pad}${l}` : idx === lead ? `${pad}${dotFor(r)} ${l}` : `${pad}  ${l}`,
+			idx < lead ? `${pad}${l}` : idx === lead ? `${pad}${bullet(r, theme)} ${l}` : `${pad}  ${l}`,
 		);
 	};
 
@@ -207,53 +196,56 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number, rules
 			return true;
 		}
 	});
-	if (shown.length < 2 || off("NEAT_RENDER_BATCH")) {
+	if (shown.length < 2) {
 		return run.flatMap(bulleted);
 	}
 
 	// Rows first: drawing a row is what stamps its end time, which the
 	// header's total needs on the very frame the group finishes.
 	const body: string[] = [];
-	// ── rows ────────────────────────────────────────────────────────────────
-	const branch = (s: string) => theme.fg("dim", s);
-	shown.forEach((child, idx) => {
-		const last = idx === shown.length - 1;
-		const fork = branch(last ? "└─ " : "├─ ");
-		const trunk = branch(last ? "   " : "│  ");
-		const node = child as unknown as object;
-		GROUPED.add(node);
-		if (child.expanded) {
-			// A frame brings its own chrome; just hang it off the tree.
-			render(child, Math.max(8, width - pad.length - 3)).forEach((line, li) => {
-				body.push(pad + (li === 0 ? fork : trunk) + line);
+	const branch = (s: string) => paint(theme, "rule", s);
+	const verbPad = Math.max(0, ...shown.map((r) => summarize(r).verb.length));
+	// Every row draws through its own render(), so the verb column is passed
+	// down through the row module instead of per call.
+	padVerbs(verbPad, () => {
+		shown.forEach((child, idx) => {
+			const last = idx === shown.length - 1;
+			const fork = branch(last ? "└─ " : "├─ ");
+			const trunk = branch(last ? "   " : "│  ");
+			const node = child as unknown as object;
+			GROUPED.add(node);
+			if (child.expanded) {
+				// A frame brings its own chrome; just hang it off the tree.
+				render(child, Math.max(8, width - pad.length - 3)).forEach((line, li) => {
+					body.push(pad + (li === 0 ? fork : trunk) + line);
+				});
+				return;
+			}
+			const lines = render(child, Math.max(8, width - pad.length - 5));
+			const callLine = LEAD_LINES.get(child) ?? 0;
+			lines.forEach((line, li) => {
+				// A `# remark` sits above its call, on the trunk it belongs to.
+				const lead =
+					li < callLine
+						? branch("│  ")
+						: li === callLine
+							? `${fork}${bullet(child, theme)} `
+							: `${trunk}  `;
+				body.push(pad + lead + line);
 			});
-			return;
-		}
-		const lines = render(child, Math.max(8, width - pad.length - 5));
-		const callLine = LEAD_LINES.get(child) ?? 0;
-		lines.forEach((line, li) => {
-			// A `# remark` sits above its call, on the trunk it belongs to.
-			const lead =
-				li < callLine
-					? branch("│  ")
-					: li === callLine
-						? `${fork}${dotFor(child)} `
-						: `${trunk}  `;
-			body.push(pad + lead + line);
 		});
 	});
 
 	// ── header ──────────────────────────────────────────────────────────────
 	const running = shown.some((r) => r.isPartial);
 	const failures = shown.filter((r) => r.result?.isError === true).length;
-	const sep = theme.fg("dim", " · ");
-	const timer = !off("NEAT_RENDER_TIMER");
+	const sep = paint(theme, "fact", " · ");
 	const starts = shown
 		.map((r) => RUN_STARTS.get(r as unknown as object))
 		.filter((s): s is number => s !== undefined);
 	const first = starts.length > 0 ? Math.min(...starts) : undefined;
 	let clock = "";
-	if (timer && first !== undefined) {
+	if (first !== undefined) {
 		if (running) {
 			if (Date.now() - first >= TIMER_AFTER_MS) clock = elapsedLabel(first);
 		} else {
@@ -267,18 +259,10 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number, rules
 		}
 	}
 
-	const glyph = running
-		? theme.fg(pulseOn() && !off("NEAT_RENDER_PULSE") ? "warning" : "dim", "●")
-		: theme.fg("dim", "▾");
-	let header = `${pad}${glyph} ${theme.fg("muted", `${shown.length} tool calls`)}`;
-	if (running) header += sep + theme.fg("muted", "running");
-	if (clock) header += sep + theme.fg("dim", clock);
+	let header = `${pad}${paint(theme, "fact", glyph.open)} ${paint(theme, "fact", `${shown.length} tool calls`)}`;
+	if (running) header += sep + paint(theme, "live", "running");
+	if (clock) header += sep + paint(theme, "fact", clock);
 	if (failures > 0) header += sep + theme.fg("error", `${failures} failed`);
 
-	const out: string[] = [];
-	const rule = () => pad + theme.fg("borderMuted", "─".repeat(Math.max(0, width - pad.length)));
-	if (rules) out.push(rule());
-	out.push(truncateToWidth(header, width), ...body);
-	if (rules) out.push(rule());
-	return out;
+	return [truncateToWidth(header, width), ...body];
 }

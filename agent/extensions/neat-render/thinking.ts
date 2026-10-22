@@ -1,41 +1,36 @@
 /**
  * thinking — one line for a reasoning block, not a wall of italic prose.
  *
- *   ▸ Thought 2.1s — first sentence…   collapsed
- *   ▾ Thought 2.1s                     expanded, reasoning under a │ bar
+ *   ● Thinking 3s │ …let me do one more round of distinct tools
+ *   ▸ Thought 2.1s — The bug is in the batch commit path…
+ *   ▾ Thought 2.1s
+ *     │ The bug is in the batch commit path: the last member carries the
+ *     │ combined diff, so the earlier rows render nothing.
  *
  * While the block is still streaming the line rolls with the latest thought,
  * so a live turn shows what is happening now rather than everything so far.
- */
-
-import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
-import { off, state } from "./style.ts";
-import { pulseOn } from "./clock.ts";
-import type { Renderable } from "./row.ts";
-
-export const THINK_PATCH = Symbol.for("dr.pi.neatRender.thinking.v1");
-
-/* ── thinking blocks: opencode-style disclosure ─────────────────────────── */
-
-/**
- * pi draws a collapsed thinking block as the same "Thinking..." for every
- * block, and an expanded one as a wall of dim italic text. This gives each
- * block one line that says what it was about, the way opencode does:
- *
- *   ● Thinking · ~340 tokens         while it streams (pulsing)
- *   ▸ Thinking · ~340 tokens         collapsed
- *   ▾ Thinking · ~340 tokens         expanded, then the reasoning,
- *       indented under it             text itself
- *
- * The arrow tells you whether the reasoning is shown: ▾ pointing down means
- * the content hangs below the header, ▸ means it is folded away.
  *
  * Nothing about visibility changes: pi still decides what is open (Ctrl+T for
  * all blocks, a click for one) and still owns each block's MouseRegion. After
- * pi rebuilds the message this only swaps what the region draws, so clicks
- * and Ctrl+T keep working and no pi logic is duplicated.
+ * pi rebuilds the message this only swaps what the region draws, so clicks and
+ * Ctrl+T keep working and no pi logic is duplicated.
  */
+
+import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import {
+	factText,
+	fit,
+	glyph,
+	noteText,
+	oneLine,
+	paint,
+	state,
+} from "./style.ts";
+import { durationLabel, pulseOn, watch } from "./clock.ts";
+import type { Renderable } from "./row.ts";
+
+export const THINK_PATCH = Symbol.for("dr.pi.neatRender.thinking.v1");
 
 export type ContentBlock = { type?: string; thinking?: string };
 export type ThinkingRun = { text: string; done: boolean };
@@ -66,43 +61,101 @@ export function thinkingRuns(content: ContentBlock[]): ThinkingRun[] {
 	return runs;
 }
 
+/**
+ * When each reasoning run started and stopped, per assistant component.
+ *
+ * pi rebuilds the content container on every streaming update, so the region
+ * objects (and any view hanging off them) are short-lived. The component is
+ * not, so the stopwatch lives there: `Thought 2.1s` has to survive the rebuild
+ * that clears the ThinkingView which measured it.
+ */
+const TIMES = new WeakMap<object, Map<number, { start: number; end?: number }>>();
 
-export function tokenCount(chars: number): string {
-	const n = Math.max(1, Math.round(chars / 4));
-	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+function timeFor(host: object, index: number): { start: number; end?: number } {
+	let times = TIMES.get(host);
+	if (!times) {
+		times = new Map();
+		TIMES.set(host, times);
+	}
+	let entry = times.get(index);
+	if (!entry) {
+		entry = { start: Date.now() };
+		times.set(index, entry);
+	}
+	return entry;
 }
 
+/** The first sentence of a thought, which is what the collapsed line shows. */
+function firstSentence(text: string): string {
+	const flat = text.replace(/```[\s\S]*?(```|$)/g, " ").replace(/\s+/g, " ").trim();
+	const cut = flat.search(/[.!?](\s|$)/);
+	return cut > 20 ? flat.slice(0, cut + 1) : flat;
+}
+
+/** The newest line of a live thought: the rolling preview. */
+function latestLine(text: string): string {
+	const rows = text.split("\n").map((l) => l.replace(/^[\s>*\-|#`]+/, "").trim()).filter(Boolean);
+	return rows[rows.length - 1] ?? "";
+}
+
+/** Human duration of a run, when one was measured. */
+function runDuration(start: number, end: number | undefined): string {
+	const ms = (end ?? Date.now()) - start;
+	return ms >= 250 ? durationLabel(ms) : "";
+}
 
 export class ThinkingView {
 	private readonly run: ThinkingRun;
 	private readonly body: (Renderable & { invalidate?(): void }) | undefined;
 	private readonly pad: number;
+	private readonly start: number;
+	private readonly end: number | undefined;
 
-	constructor(run: ThinkingRun, body: (Renderable & { invalidate?(): void }) | undefined, pad: number) {
+	constructor(
+		run: ThinkingRun,
+		body: (Renderable & { invalidate?(): void }) | undefined,
+		pad: number,
+		times: { start: number; end?: number },
+	) {
 		this.run = run;
 		this.body = body;
 		this.pad = pad;
+		this.start = times.start;
+		this.end = times.end;
 	}
 
 	render(width: number): string[] {
 		const theme = state.theme;
 		if (!theme) return this.body?.render(width) ?? [];
-		const tokens = theme.fg("dim", `· ~${tokenCount(this.run.text.length)} tokens`);
-		let head: string;
+		const pad = " ".repeat(this.pad);
+		const elapsed = runDuration(this.start, this.run.done ? (this.end ?? Date.now()) : undefined);
+
 		if (!this.run.done) {
-			const dot = theme.fg(pulseOn() && !off("NEAT_RENDER_PULSE") ? "warning" : "dim", "●");
-			head = `${dot} ${theme.fg("thinkingText", "Thinking")} ${tokens}`;
-		} else {
-			// ▾ when the reasoning hangs below, ▸ when folded away.
-			const arrow = theme.fg("dim", this.body ? "▾" : "▸");
-			head = `${arrow} ${theme.fg("thinkingText", "Thinking")} ${tokens}`;
+			// Live: the header says how long it has been thinking, then the
+			// newest line of the thought, so the turn shows what is happening
+			// now instead of a growing wall.
+			watch(this);
+			const dot = theme.fg(pulseOn() ? "warning" : "dim", glyph.bullet);
+			const head = `${dot} ${paint(theme, "thought", "Thinking")}${elapsed ? ` ${factText(theme, elapsed)}` : ""}`;
+			const bar = paint(theme, "rule", glyph.bar);
+			const room = Math.max(8, width - visibleWidth(head) - 4);
+			const preview = oneLine(latestLine(this.run.text), room);
+			return [fit(`${pad}${head}${preview ? ` ${bar} ${noteText(theme, preview)}` : ""}`, width)];
 		}
-		const lines = [truncateToWidth(" ".repeat(this.pad) + head, width)];
+
+		// ▾ when the reasoning hangs below, ▸ when folded away.
+		const arrow = paint(theme, "fact", this.body ? glyph.open : glyph.shut);
+		const head = `${arrow} ${paint(theme, "thought", "Thought")}${elapsed ? ` ${factText(theme, elapsed)}` : ""}`;
+		const lines: string[] = [];
 		if (this.body) {
-			// pi's markdown keeps its own pad, so the text hangs under the header.
-			const indent = "  ";
-			for (const line of this.body.render(Math.max(8, width - indent.length))) lines.push(indent + line);
+			lines.push(fit(`${pad}${head}`, width));
+			const bar = paint(theme, "rule", glyph.bar);
+			const room = Math.max(8, width - pad.length - 2);
+			for (const line of this.body.render(room)) lines.push(fit(`${pad}${bar} ${line}`, width));
+			return lines;
 		}
+		const summary = oneLine(firstSentence(this.run.text), Math.max(8, width - visibleWidth(head) - 4));
+		lines.push(fit(`${pad}${head}${summary ? ` ${paint(theme, "fact", "—")} ${summary}` : ""}`, width));
 		return lines;
 	}
 
@@ -122,15 +175,22 @@ export function decorateThinking(host: AssistantInternals, message: { content?: 
 		if (!region || typeof region.handleMouse !== "function" || !region.child) continue;
 		const run = runs[index];
 		const hidden = host.thinkingVisibilityOverrides?.get(index) ?? host.hideThinkingBlock ?? false;
+		const times = timeFor(host as object, index);
 		index++;
 		if (!run) break;
 		const done = run.done || !host.isStreaming;
-		region.child = new ThinkingView({ ...run, done }, hidden ? undefined : region.child, host.outputPad ?? 1);
+		if (done && times.end === undefined) times.end = Date.now();
+		region.child = new ThinkingView(
+			{ ...run, done },
+			hidden ? undefined : region.child,
+			host.outputPad ?? 1,
+			times,
+		);
 	}
 }
 
-export type UpdateFn = (this: unknown, message: unknown, isStreaming?: boolean) => void;
-export type ThinkingPatchable = { updateContent: UpdateFn; [key: symbol]: unknown };
+type UpdateFn = (this: unknown, message: unknown, isStreaming?: boolean) => void;
+type ThinkingPatchable = { updateContent: UpdateFn; [key: symbol]: unknown };
 
 export function installThinking(): ThinkingPatchable | undefined {
 	const proto = (AssistantMessageComponent as unknown as { prototype?: ThinkingPatchable } | undefined)?.prototype;
@@ -148,7 +208,6 @@ export function installThinking(): ThinkingPatchable | undefined {
 	return proto;
 }
 
-
 export function uninstallThinking(proto: ThinkingPatchable | undefined): void {
 	if (!proto) return;
 	const original = proto[THINK_PATCH];
@@ -156,7 +215,9 @@ export function uninstallThinking(proto: ThinkingPatchable | undefined): void {
 	delete proto[THINK_PATCH];
 }
 
-export const FENCE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
+/* ── perspective on long reasoning ─────────────────────────────────────── */
+
+const FENCE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
 
 /**
  * Elide fenced code out of a thinking block, leaving a trailing ellipsis.
@@ -172,8 +233,6 @@ export const FENCE_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
  * An unterminated fence — the common case mid-stream — folds too, so the
  * block does not flash open as it arrives. Only the *display* is folded;
  * the transcript, the session file and the model's context are untouched.
- *
- * NEAT_RENDER_FOLD_THINKING=0 shows thinking verbatim.
  */
 export function foldThinkingFences(md: string): string {
 	if (!md || (!md.includes("```") && !md.includes("~~~"))) return md;
