@@ -1,22 +1,23 @@
 /**
  * turn — the shape of one exchange.
  *
- *   ❯ Fold the turns, and mark the answer.
+ *   ❯ Read the container patch, then mark the answer.
  *
  *   Let me read the container patch first.
- *   ▸ Worked 18.2s · read 2 files, ran 3 commands, 1 search
+ *   ▾ 3 tool calls · 1.4s
+ *   ├─ ● Read   agent/extensions/neat-render/turn.ts   525 lines
+ *   └─ ● Search "chatContainer" in modes/interactive     3 results
+ *
+ *   └─ Thinking 2.1s
+ *      A turn runs from one prompt to the next, so the fold has to live in
+ *      Container.render.
+ *
  *   ● A turn is the prompt plus everything up to the next prompt.
  *
- *     deepseek-v4.1-flash · 18.2s · 88 tok/s · $0.0071
- *
- * While the turn is running, the work is live: thinking rolls on one line and
- * the calls hang off a tree. Once the turn is done the calls fold into one
- * summary line; reasoning keeps its one-line disclosures (`▸ Thought 2.1s —
- * …`), and Ctrl+O (pi's tool-output toggle) opens every turn again: rows at
- * full size, reasoning at full length.
- *
- * Spacing is owned here: exactly one blank line between the prompt, the work
- * and the answer, and none inside the activity block.
+ * Nothing is collapsed here: a call is a row, a run of calls is a tree, and
+ * the reasoning hangs under its own label. pi's Ctrl+O still opens every call
+ * at full size. Spacing is owned here: exactly one blank line between the
+ * prompt, the work and the answer, and none inside the activity block.
  */
 
 import { AssistantMessageComponent, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
@@ -26,16 +27,13 @@ import {
 	type RenderFn,
 	type ThemeLike,
 	type ToolRow,
-	fit,
 	glyph,
 	inset,
 	noteText,
-	off,
 	paint,
-	plural,
 	state,
 } from "./style.ts";
-import { type Category, summarize } from "./tools.ts";
+import { summarize } from "./tools.ts";
 import {
 	DURATION_AFTER_MS,
 	RUN_ENDS,
@@ -183,10 +181,10 @@ function blocksOf(parts: unknown[], width: number, keepThinking: boolean): Block
 }
 
 /**
- * A finished message inside a folded turn: pi's own render (so reasoning shows
- * exactly as Ctrl+T says, with its `│` bars and working clicks), the hidden
- * thinking label taken back out, and — for the answer — the accent bullet on
- * the first line of text, with every line under it indented to match.
+ * A finished message: pi's own render (so reasoning shows exactly as Ctrl+T
+ * says, with its working clicks), the hidden thinking label taken back out,
+ * and — for the answer — the accent bullet on the first line of text, with
+ * every line under it indented to match.
  *
  * Rendering through the component keeps its internal line count, and therefore
  * pi's mouse hit-testing, exactly right.
@@ -199,7 +197,7 @@ const isThought = (line: string) => {
 	return text.startsWith(`${glyph.open} Thought`) || text.startsWith(`${glyph.shut} Thought`) || text.startsWith(glyph.bar);
 };
 
-function foldedMessage(
+function finishedMessage(
 	host: AssistantInternals & Renderable,
 	theme: ThemeLike,
 	width: number,
@@ -226,65 +224,6 @@ function foldedMessage(
 }
 
 /* ── folding a finished turn ───────────────────────────────────────────── */
-
-/** "read 2 files", "ran 3 commands", "4 searches". */
-function phrase(category: Category, n: number): string {
-	switch (category) {
-		case "read":
-			return `read ${plural(n, "file")}`;
-		case "edit":
-			return `edited ${plural(n, "file")}`;
-		case "run":
-			return `ran ${plural(n, "command")}`;
-		case "search":
-			return `${n} ${n === 1 ? "search" : "searches"}`;
-		case "fetch":
-			return `fetched ${plural(n, "page")}`;
-		default:
-			return plural(n, "call");
-	}
-}
-
-const ORDER: Category[] = ["read", "edit", "run", "search", "fetch", "other"];
-
-/** How long the calls in one activity block were actually running. */
-function workTime(rows: ToolRow[]): number | undefined {
-	const starts = rows.map((r) => RUN_STARTS.get(r as unknown as object)).filter((s): s is number => s !== undefined);
-	const ends = rows.map((r) => RUN_ENDS.get(r as unknown as object)).filter((e): e is number => e !== undefined);
-	if (starts.length === 0 || ends.length === 0) return undefined;
-	const total = Math.max(...ends) - Math.min(...starts);
-	return total >= DURATION_AFTER_MS ? total : undefined;
-}
-
-/**
- * One line for a whole run of work:
- *
- *   ▸ Worked 18.2s · read 2 files, ran 3 commands, 4 searches · 1 failed
- *
- * The counts are what the rows cannot show once they are gone; failures stay
- * red because they are the one thing worth noticing in a folded turn.
- */
-function summaryLine(rows: ToolRow[], theme: ThemeLike, width: number): string[] {
-	const counts = new Map<Category, number>();
-	let failed = 0;
-	for (const row of rows) {
-		const summary = summarize(row);
-		if (summary.hidden) continue;
-		counts.set(summary.category, (counts.get(summary.category) ?? 0) + 1);
-		if (row.result?.isError) failed++;
-	}
-	const total = [...counts.values()].reduce((a, b) => a + b, 0);
-	if (total === 0) return [];
-
-	const phrases = ORDER.filter((c) => counts.has(c)).map((c) => phrase(c, counts.get(c) ?? 0));
-	const took = workTime(rows);
-	const sep = paint(theme, "rule", " · ");
-	const parts = [`Worked${took ? ` ${durationLabel(took)}` : ""}`, failed > 0 ? `${failed} failed` : "", phrases.join(", ")].filter(Boolean);
-	const line = parts
-		.map((part) => (part.endsWith("failed") ? theme.fg("error", part) : paint(theme, "meta", part)))
-		.join(sep);
-	return [fit(`${inset()}${paint(theme, "fact", glyph.shut)} ${line}`, width)];
-}
 
 /* ── patch: turns ──────────────────────────────────────────────────────── */
 
@@ -361,61 +300,59 @@ type Fragment = { lines: string[]; source: unknown };
 /** Mouse layout entry, shaped the way pi-tui's Container records it. */
 type MouseEntry = { component: unknown; height: number };
 
-/** A component that never claims a click: the summary line and the footer. */
+/** Not a click target, for lines that belong to no component. */
 const NOWHERE = { render: () => [], handleMouse: () => undefined };
 
 /**
- * Lay out one turn: prompt, work, answer, footer.
+ * Lay out one turn: prompt, work, answer.
  *
- * A finished turn folds its work into one summary line. `NEAT_RENDER_FOLD=0`,
- * or pi's own tool-output toggle (Ctrl+O), keeps every turn open: rows at full
- * size, thinking back to its disclosure lines.
+ * Nothing is ever collapsed: the calls show as a tree, the reasoning as its
+ * hung block, and the answer carries the accent bullet. This renderer only
+ * decides order and spacing — pi still draws every child.
  */
 function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, width: number): Fragment[] {
 	const live = isLive(parts);
-	const expanded = off("NEAT_RENDER_FOLD") || (state.ui?.getToolsExpanded?.() ?? false);
-	const folded = !live && !expanded;
-
-	const blocks = blocksOf(parts, width, !folded);
-	// Folded, the whole turn's work becomes one line, drawn where the last of
-	// it was: narration above, the summary closing it, the answer below.
-	const lastActivity = blocks.map((b) => b.kind).lastIndexOf("activity");
-	const allRows = blocks.flatMap((b) => (b.kind === "activity" ? b.rows : []));
+	const blocks = blocksOf(parts, width, true);
 
 	const out: Fragment[] = [{ lines: prompt.render(width), source: prompt }];
 	/** One blank line between blocks; it belongs to whatever came before. */
 	const push = (lines: string[], source: unknown) => {
 		if (lines.length === 0) return;
 		const previous = out[out.length - 1];
-		const gap: Fragment = { lines: [""], source: previous?.source ?? prompt };
-		out.push(gap, { lines, source });
+		out.push({ lines: [""], source: previous?.source ?? prompt }, { lines, source });
+	};
+	const pushAll = (fragments: Fragment[]) => {
+		const filled = fragments.filter((fragment) => fragment.lines.length > 0);
+		if (filled.length === 0) return;
+		const previous = out[out.length - 1];
+		out.push({ lines: [""], source: previous?.source ?? prompt }, ...filled);
 	};
 
-	const draw = (block: Block, index: number) => {
+	const draw = (block: Block) => {
 		if (block.kind === "activity") {
-			if (!folded) push(renderRun(block.rows, theme, width), NOWHERE);
-			else if (index === lastActivity) push(summaryLine(allRows, theme, width), NOWHERE);
+			pushAll(renderRun(block.rows, theme, width));
 			return;
 		}
 		if (block.kind === "assistant") {
-			if (folded) push(foldedMessage(block.comp as unknown as AssistantInternals & Renderable, theme, width, block.answer), block.comp);
-			else push(trimBlank((block.comp as unknown as Renderable).render(width)), block.comp);
+			const host = block.comp as unknown as AssistantInternals & Renderable;
+			// A finished message always renders the same way; only a live one
+			// is left entirely to pi.
+			push(live ? trimBlank(host.render(width)) : finishedMessage(host, theme, width, block.answer), block.comp);
 			return;
 		}
 		push(block.lines, block.comp);
 	};
 
 	// The answer closes the turn. Anything pi appends afterwards — a startup
-	// warning, a compaction notice — belongs below the footer, not inside the
-	// work it is reporting on.
+	// warning, a compaction notice — is emitted after it, not inside the work
+	// it is reporting on.
 	const answerIndex = blocks.findIndex((block) => block.kind === "assistant" && block.answer);
 	const cut = answerIndex >= 0 ? answerIndex : blocks.length - 1;
 	blocks.forEach((block, index) => {
-		if (index <= cut) draw(block, index);
+		if (index <= cut) draw(block);
 	});
-
 	blocks.forEach((block, index) => {
-		if (index > cut) draw(block, index);
+		if (index > cut) draw(block);
 	});
 	// pi brackets an assistant message in OSC 133 zones for shell integration;
 	// the prompt already carries the pair, so the body drops them.
@@ -444,7 +381,7 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
  * how many failed. Calls from consecutive assistant messages group too, as
  * long as nothing visible sits between them.
  */
-export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): string[] {
+export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Fragment[] {
 	const render = (r: ToolRow, w: number) => (r as unknown as { render(x: number): string[] }).render(w);
 
 	const pad = inset();
@@ -472,12 +409,14 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): stri
 		}
 	});
 	if (shown.length < 2) {
-		return run.flatMap(bulleted);
+		return run.map((row) => ({ lines: bulleted(row), source: row }));
 	}
 
 	// Rows first: drawing a row is what stamps its end time, which the
-	// header's total needs on the very frame the group finishes.
-	const body: string[] = [];
+	// header's total needs on the very frame the group finishes. Each row's
+	// lines keep that row as their click target, so a click still opens one
+	// call inside the turn.
+	const body: Fragment[] = [];
 	const branch = (s: string) => paint(theme, "rule", s);
 	const verbPad = Math.max(0, ...shown.map((r) => summarize(r).verb.length));
 	// Every row draws through its own render(), so the verb column is passed
@@ -491,14 +430,15 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): stri
 			GROUPED.add(node);
 			if (child.expanded) {
 				// A frame brings its own chrome; just hang it off the tree.
-				render(child, Math.max(8, width - pad.length - 3)).forEach((line, li) => {
-					body.push(pad + (li === 0 ? fork : trunk) + line);
-				});
+				const framed = render(child, Math.max(8, width - pad.length - 3)).map(
+					(line, li) => pad + (li === 0 ? fork : trunk) + line,
+				);
+				if (framed.length > 0) body.push({ lines: framed, source: child });
 				return;
 			}
 			const lines = render(child, Math.max(8, width - pad.length - 5));
 			const callLine = LEAD_LINES.get(child) ?? 0;
-			lines.forEach((line, li) => {
+			const drawn = lines.map((line, li) => {
 				// A `# remark` sits above its call, on the trunk it belongs to.
 				const lead =
 					li < callLine
@@ -506,8 +446,9 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): stri
 						: li === callLine
 							? `${fork}${bullet(child, theme)} `
 							: `${trunk}  `;
-				body.push(pad + lead + line);
+				return pad + lead + line;
 			});
+			if (drawn.length > 0) body.push({ lines: drawn, source: child });
 		});
 	});
 
@@ -542,5 +483,5 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): stri
 	if (clock) header += sep + paint(theme, "fact", clock);
 	if (failures > 0) header += sep + theme.fg("error", `${failures} failed`);
 
-	return [truncateToWidth(header, width), ...body];
+	return [{ lines: [truncateToWidth(header, width)], source: NOWHERE }, ...body];
 }

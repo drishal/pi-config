@@ -1,28 +1,30 @@
 /**
  * neat-render — compact, Claude-Code-shaped transcript chrome for pi.
  *
- * One turn, folded:
+ * One turn:
  *
  *   ❯ In a batch, launch a few read/grep commands.
  *
  *   Let me check how pi loads extensions…
- *   ▸ Worked 18s · read 2 files, ran 3 commands, 1 search · 1 failed
+ *   ▾ 3 tool calls · 1.4s
+ *   ├─ ● Read    agent/extensions/eval/index.ts   48 lines
+ *   ├─ ● Run     $ ls ~/.pi/agent/extensions        12 lines
+ *   └─ ● Search  "index.ts" in agent/extensions     4 results
+ *
+ *   └─ Thinking 2.1s
+ *      A directory extension is loaded through its index.ts, so the entry
+ *      point is the thing to read.
+ *
  *   ● Pi loads a directory extension from its index.ts.
  *
- * ── What Ctrl+O means now ─────────────────────────────────────────────────
- * pi's tool-output toggle opens every turn at once: each call drawn as a full
- * omp-style frame. With it off, a finished turn folds its *calls* into one
- * summary line; the prose, the reasoning and the answer stay exactly as pi
- * draws them. A running turn shows its calls as a live tree.
- *
- * Reasoning follows pi's own Ctrl+T, untouched: visible means the block is
- * shown at length (under a `│` bar), hidden means one `▸ Thought 2.1s — …`
- * disclosure line.
+ * Nothing folds: a call is a row, a run of calls is a tree, and the reasoning
+ * hangs under its own label. pi's Ctrl+O still opens every call at full size,
+ * and its Ctrl+T still decides whether reasoning is shown.
  *
  * ── Files ─────────────────────────────────────────────────────────────────
  * style.ts palette and glyphs · tools.ts the per-tool registry · row.ts one
- * call · turn.ts the fold and the answer · thinking.ts reasoning lines ·
- * table.ts compact markdown tables · clock.ts the shared ticker.
+ * call · turn.ts prompt, spacing and the answer · thinking.ts reasoning lines
+ * · table.ts compact markdown tables · clock.ts the shared ticker.
  *
  * ── Why this is a renderer, not a tool wrapper ─────────────────────────────
  * The obvious way to get compact rows is to re-register `read`/`bash` with
@@ -48,7 +50,6 @@
  *
  * ── Config (env) ──────────────────────────────────────────────────────────
  *   NEAT_RENDER=0        disable entirely
- *   NEAT_RENDER_FOLD=0   leave every turn expanded
  *   NEAT_RENDER_INSET=n  left inset for tool rows (default 1, matching pi's
  *                        message output pad; set 0 to hug the left edge)
  */
