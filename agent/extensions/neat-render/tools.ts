@@ -8,15 +8,7 @@
  * tool-specific argument shapes; the row renderer just lays the words out.
  */
 
-import {
-	type ToolRow,
-	countLines,
-	num,
-	oneLine,
-	plural,
-	shortPath,
-	str,
-} from "./style.ts";
+import { type ToolRow, countLines, num, plural, shortPath, str } from "./style.ts";
 
 /** What a call did, at the coarsest useful level. Feeds the turn summary. */
 export type Category = "read" | "run" | "search" | "fetch" | "edit" | "other";
@@ -177,10 +169,33 @@ export function humanise(name: string): string {
 }
 
 /**
+ * Every search-shaped tool reads the same: a pattern (or query, regex, name)
+ * and, when one was given, the place it was searched.
+ */
+const SEARCH: Record<string, Spec> = {
+	grep: {
+		category: "search",
+		verb: "Search",
+		subject: (c) => {
+			const q = str(c.args.pattern) ?? str(c.args.query) ?? str(c.args.regex) ?? str(c.args.name) ?? "";
+			const scope = c.path ? ` in ${shortPath(c.path)}` : "";
+			return `${q}${scope}`;
+		},
+		facts: (c) => (c.lines ? [`${c.lines} ${c.lines === 1 ? "result" : "results"}`] : []),
+	},
+};
+
+for (const name of ["anchor_grep", "ast_grep_search", "symbol_search", "find", "glob"]) {
+	SEARCH[name] = SEARCH.grep;
+}
+
+/**
  * The registry: one entry per tool family. An entry only says what makes the
  * row readable — a missing `subject` or `facts` just leaves that part blank.
  */
 const REGISTRY: Record<string, Spec> = {
+	...SEARCH,
+
 	read: {
 		category: "read",
 		verb: "Read",
@@ -244,21 +259,7 @@ const REGISTRY: Record<string, Spec> = {
 		},
 	},
 
-	grep: {
-		category: "search",
-		verb: "Search",
-		subject: (c) => {
-			const q = str(c.args.pattern) ?? str(c.args.query) ?? str(c.args.regex) ?? str(c.args.name) ?? "";
-			const scope = c.path ? ` in ${shortPath(c.path)}` : "";
-			return `${q}${scope}`;
-		},
-		facts: (c) => (c.lines ? [`${c.lines} ${c.lines === 1 ? "result" : "results"}`] : []),
-	},
-	anchor_grep: { category: "search", verb: "Search" },
-	ast_grep_search: { category: "search", verb: "Search" },
-	symbol_search: { category: "search", verb: "Search" },
-	find: { category: "search", verb: "Search" },
-	glob: { category: "search", verb: "Search" },
+	...SEARCH,
 
 	web_search: {
 		category: "search",
@@ -299,7 +300,8 @@ const REGISTRY: Record<string, Spec> = {
 		},
 		facts: (c) => {
 			if (c.row.result?.isError) return ["failed"];
-			const stat = diffStat(num(c.details.metrics && (c.details.metrics as any).added_lines), undefined);
+			const metrics = (c.details.metrics ?? {}) as { added_lines?: unknown };
+			const stat = diffStat(num(metrics.added_lines), undefined);
 			return stat ? [stat] : [];
 		},
 		body: (c) => {
@@ -398,6 +400,3 @@ export function resultText(row: ToolRow): string {
 		.map((p) => p.text as string)
 		.join("\n");
 }
-
-/** Cut a subject down to something a row can hold. */
-export const subjectText = (s: string, max: number) => oneLine(s, max);

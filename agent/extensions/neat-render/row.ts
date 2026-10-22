@@ -147,9 +147,8 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 	// The model's remark reads first, like a comment above a shell command.
 	// It sits in the bullet column (see the turn renderer), so it heads the
 	// call below it instead of trailing the previous row's result.
-	const noteLine = note
-		? [fit(theme.italic ? theme.italic(noteText(theme, `# ${oneLine(note, Math.max(8, width))}`)) : noteText(theme, `# ${oneLine(note, Math.max(8, width))}`), width)]
-		: [];
+	const remark = note ? noteText(theme, `# ${oneLine(note, Math.max(8, width))}`) : "";
+	const noteLine = remark ? [fit(theme.italic ? theme.italic(remark) : remark, width)] : [];
 	LEAD_LINES.set(row, noteLine.length);
 
 	// Verbs are padded to the widest verb in the group so subjects line up.

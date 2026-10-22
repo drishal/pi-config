@@ -206,7 +206,9 @@ function foldedMessage(
 	const room = bullet ? Math.max(8, width - 2) : width;
 	const lines = trimBlank(withFolded(() => host.render(room)))
 		// With thinking hidden, pi draws a bare label instead of the block.
-		.filter((line) => !label || plain(line) !== label);
+		.filter((line) => !label || plain(line) !== label)
+		// A folded thinking run leaves its spacer behind; keep one blank at most.
+		.filter((line, index, all) => !(isBlank(line) && index > 0 && isBlank(all[index - 1])));
 	if (!bullet) return lines;
 	const dot = paint(theme, "answer", glyph.bullet);
 	let marked = false;
