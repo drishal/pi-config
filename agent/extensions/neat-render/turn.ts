@@ -43,7 +43,7 @@ import {
 	pulseOn,
 } from "./clock.ts";
 import { THINKING_TOTALS, tokenCount } from "./thinking.ts";
-import { GROUPED, LEAD_LINES, bullet, isBlank, padVerbs, trimBlank } from "./row.ts";
+import { GROUPED, LEAD_LINES, bullet, isBlank, trimBlank } from "./row.ts";
 
 /* ── the prompt: a `❯` quote over a full-width fill strip ──────────────── */
 
@@ -499,38 +499,35 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 	// call inside the turn.
 	const body: Fragment[] = [];
 	const branch = (s: string) => paint(theme, "rule", s);
-	const verbPad = Math.max(0, ...shown.map((r) => summarize(r).verb.length));
-	// Every row draws through its own render(), so the verb column is passed
-	// down through the row module instead of per call.
-	padVerbs(verbPad, () => {
-		shown.forEach((child, idx) => {
-			const last = idx === shown.length - 1;
-			const fork = branch(last ? "└─ " : "├─ ");
-			const trunk = branch(last ? "   " : "│  ");
-			const node = child as unknown as object;
-			GROUPED.add(node);
-			if (child.expanded) {
-				// A frame brings its own chrome; just hang it off the tree.
-				const framed = render(child, Math.max(8, width - pad.length - 3)).map(
-					(line, li) => pad + (li === 0 ? fork : trunk) + line,
-				);
-				if (framed.length > 0) body.push({ lines: framed, source: child });
-				return;
-			}
-			const lines = render(child, Math.max(8, width - pad.length - 5));
-			const callLine = LEAD_LINES.get(child) ?? 0;
-			const drawn = lines.map((line, li) => {
-				// A `# remark` sits above its call, on the trunk it belongs to.
-				const lead =
-					li < callLine
-						? branch("│  ")
-						: li === callLine
-							? `${fork}${bullet(child, theme)} `
-							: `${trunk}  `;
-				return pad + lead + line;
-			});
-			if (drawn.length > 0) body.push({ lines: drawn, source: child });
+	// Every row draws through its own render(); GROUPED tells each it is hanging
+	// off a tree connector so its facts stay on the call line.
+	shown.forEach((child, idx) => {
+		const last = idx === shown.length - 1;
+		const fork = branch(last ? "└─ " : "├─ ");
+		const trunk = branch(last ? "   " : "│  ");
+		const node = child as unknown as object;
+		GROUPED.add(node);
+		if (child.expanded) {
+			// A frame brings its own chrome; just hang it off the tree.
+			const framed = render(child, Math.max(8, width - pad.length - 3)).map(
+				(line, li) => pad + (li === 0 ? fork : trunk) + line,
+			);
+			if (framed.length > 0) body.push({ lines: framed, source: child });
+			return;
+		}
+		const lines = render(child, Math.max(8, width - pad.length - 5));
+		const callLine = LEAD_LINES.get(child) ?? 0;
+		const drawn = lines.map((line, li) => {
+			// A `# remark` sits above its call, on the trunk it belongs to.
+			const lead =
+				li < callLine
+					? branch("│  ")
+					: li === callLine
+						? `${fork}${bullet(child, theme)} `
+						: `${trunk}  `;
+			return pad + lead + line;
 		});
+		if (drawn.length > 0) body.push({ lines: drawn, source: child });
 	});
 
 	// No header: the tree is the summary. The turn footer (Σ) carries what the

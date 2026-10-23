@@ -82,19 +82,6 @@ export function codeSubject(row: ToolRow, text: string, theme: ThemeLike, lang: 
 	return line;
 }
 
-/** Verb column width of the tree being drawn right now; 0 outside a tree. */
-let treeVerbWidth = 0;
-
-/** Draw rows with every verb padded to one column, so subjects line up. */
-export function padVerbs<T>(n: number, fn: () => T): T {
-	const prev = treeVerbWidth;
-	treeVerbWidth = n;
-	try {
-		return fn();
-	} finally {
-		treeVerbWidth = prev;
-	}
-}
 
 /**
  * Word-wrap to `width`, hard-splitting any single token longer than a line
@@ -130,8 +117,6 @@ export type RowOpts = {
 	start?: number;
 	/** How long the call took, when both ends were seen. */
 	took?: number;
-	/** Pad verbs to this width so subjects line up down a group. */
-	verbPad?: number;
 	/** Draw as a tree child: facts stay on the call line. */
 	tree?: boolean;
 	/** Column facts should end at, when there is room. */
@@ -159,7 +144,7 @@ export type RowOpts = {
  * `└` outcome would collide with the tree's own `└`.
  */
 export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: RowOpts = {}): string[] {
-	const { start, took, verbPad, tree, align } = opts;
+	const { start, took, tree, align } = opts;
 	const summary = summarize(row);
 	const { subject, facts, glue, body: extra, hidden, note, lang } = summary;
 	if (hidden) return [];
@@ -186,9 +171,7 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 	const noteLine = remark ? [fit(theme.italic ? theme.italic(remark) : remark, width)] : [];
 	LEAD_LINES.set(row, noteLine.length);
 
-	// Verbs are padded to the widest verb in the group so subjects line up.
-	const verbWidth = Math.max(visibleWidth(summary.verb), verbPad ?? treeVerbWidth);
-	const verb = verbText(theme, summary.verb.padEnd(verbWidth));
+	const verb = verbText(theme, summary.verb);
 
 	// Running: the command moves to its own wrapped `└ $` block, so the
 	// header carries only the verb and the status. Inside a tree the row is
