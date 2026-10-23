@@ -211,7 +211,9 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 	const reserve = running
 		? visibleWidth(sep) + visibleWidth("running…") + (timerText ? visibleWidth(sep) + visibleWidth(timerText) : 0)
 		: tree
-			? Math.min(40, factsWidth + 2)
+			// Reserve the facts' real width, so a line that could align does not
+			// truncate its subject to make room the alignment would have used.
+			? factsWidth + 2
 			: 0;
 
 	let head = verb;

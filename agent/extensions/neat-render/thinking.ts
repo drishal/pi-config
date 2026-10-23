@@ -73,6 +73,13 @@ export function thinkingRuns(content: ContentBlock[]): ThinkingRun[] {
  */
 const TIMES = new WeakMap<object, Map<number, { start: number; end?: number }>>();
 
+/**
+ * Per-host thinking totals (chars and runs), for the turn's `Σ` footer. Filled
+ * in by decorateThinking on every update, so the values survive the rebuild
+ * that clears the views.
+ */
+export const THINKING_TOTALS = new WeakMap<object, { chars: number; runs: number }>();
+
 function timeFor(host: object, index: number): { start: number; end?: number } {
 	let times = TIMES.get(host);
 	if (!times) {
@@ -86,7 +93,6 @@ function timeFor(host: object, index: number): { start: number; end?: number } {
 	}
 	return entry;
 }
-
 /** The newest line of a live thought: the rolling preview. */
 function latestLine(text: string): string {
 	const rows = text.split("\n").map((l) => l.replace(/^[\s>*\-|#`]+/, "").trim()).filter(Boolean);
@@ -94,11 +100,10 @@ function latestLine(text: string): string {
 }
 
 /** A rough token count from the character count, as pi's own label does. */
-function tokenCount(chars: number): string {
+export function tokenCount(chars: number): string {
 	const n = Math.max(1, Math.round(chars / 4));
 	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
-
 /** Human duration of a run, when one was measured. */
 function runDuration(start: number, end: number | undefined): string {
 	const ms = (end ?? Date.now()) - start;
@@ -179,6 +184,10 @@ export function decorateThinking(host: AssistantInternals, message: { content?: 
 	const kids = host.contentContainer?.children;
 	if (!Array.isArray(kids) || !Array.isArray(message?.content)) return;
 	const runs = thinkingRuns(message.content);
+	THINKING_TOTALS.set(host as object, {
+		chars: runs.reduce((n, r) => n + r.text.length, 0),
+		runs: runs.length,
+	});
 	let index = 0;
 	for (const kid of kids) {
 		// Only thinking runs are wrapped in a MouseRegion, one per run, in order.

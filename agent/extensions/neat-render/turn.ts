@@ -27,6 +27,7 @@ import {
 	type RenderFn,
 	type ThemeLike,
 	type ToolRow,
+	fit,
 	glyph,
 	inset,
 	noteText,
@@ -41,6 +42,7 @@ import {
 	durationLabel,
 	pulseOn,
 } from "./clock.ts";
+import { THINKING_TOTALS, tokenCount } from "./thinking.ts";
 import { GROUPED, LEAD_LINES, bullet, isBlank, padVerbs, trimBlank } from "./row.ts";
 
 /* ── the prompt: a `❯` quote over a full-width fill strip ──────────────── */
@@ -297,6 +299,9 @@ export function installTurns(): Patchable | undefined {
 				i += 1;
 				continue;
 			}
+			// A blank line above the prompt separates this turn from the one it
+			// follows, the way there is one between the prompt and its work.
+			if (i > 0) emit([""], NOWHERE);
 			// The turn runs to the next prompt, or to the end of the transcript.
 			let end = i + 1;
 			while (end < kids.length && !(kids[end] instanceof UserMessageComponent)) end++;
@@ -339,6 +344,8 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
 	const live = isLive(parts);
 	const blocks = blocksOf(parts, width, true);
 
+	// The prompt renders first; `push` adds a blank line before the first block,
+	// which serves as the prompt → work gap.
 	const out: Fragment[] = [{ lines: prompt.render(width), source: prompt }];
 	/** One blank line between blocks; it belongs to whatever came before. */
 	const push = (lines: string[], source: unknown) => {
@@ -379,10 +386,60 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
 	blocks.forEach((block, index) => {
 		if (index > cut) draw(block);
 	});
+	// A finished turn that did measurable work closes with its Σ total.
+	if (answerIndex >= 0 && !live) {
+		const f = sigmaFooter(blocks, theme, width);
+		if (f) push(f.lines, f.source);
+	}
 	// pi brackets an assistant message in OSC 133 zones for shell integration;
 	// the prompt already carries the pair, so the body drops them.
 	for (const fragment of out.slice(1)) fragment.lines = fragment.lines.map((line) => line.replace(OSC133_ZONE_RE, ""));
 	return out;
+}
+
+/**
+ * The Σ footer: one line under the answer when the turn produced work worth
+ * totalling — reasoning chars, tool calls, wall time.
+ *
+ *   └ Σ ~140 tokens thought · 3 calls · 7.5s
+ *
+ * Failure and live state ride along. Nothing is drawn for a turn that did
+ * nothing measurable.
+ */
+function sigmaFooter(blocks: Block[], theme: ThemeLike, width: number): Fragment | undefined {
+	const pad = inset();
+	const sep = paint(theme, "fact", " · ");
+	const elbow = paint(theme, "rule", "└ Σ");
+	const parts: string[] = [];
+
+	let thoughtChars = 0;
+	let calls = 0;
+	let failures = 0;
+	let first = Number.POSITIVE_INFINITY;
+	let last = 0;
+	for (const block of blocks) {
+		if (block.kind === "activity") {
+			for (const row of block.rows) {
+				calls++;
+				if (row.result?.isError) failures++;
+				const s = RUN_STARTS.get(row as unknown as object);
+				const e = RUN_ENDS.get(row as unknown as object);
+				if (s !== undefined && s < first) first = s;
+				if (e !== undefined && e > last) last = e;
+			}
+		}
+		if (block.kind === "assistant") {
+			const t = THINKING_TOTALS.get(block.comp as object);
+			if (t) thoughtChars += t.chars;
+		}
+	}
+	if (thoughtChars === 0 && calls === 0) return undefined;
+	if (thoughtChars > 0) parts.push(paint(theme, "fact", `~${tokenCount(thoughtChars)} tokens thought`));
+	if (calls > 0) parts.push(paint(theme, "fact", `${calls} call${calls === 1 ? "" : "s"}`));
+	if (first !== Number.POSITIVE_INFINITY && last > first && last - first >= DURATION_AFTER_MS)
+		parts.push(paint(theme, "fact", durationLabel(last - first)));
+	if (failures > 0) parts.push(paint(theme, "fail", `${failures} failed`));
+	return { lines: [fit(`${pad}${elbow} ${parts.join(sep)}`, width)], source: NOWHERE };
 }
 
 /**
@@ -393,18 +450,17 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
  *   ● Bash $ grep -rniE '(api[_-]?key|secret|token)' .
  *     └ 80 lines
  *
- * Two or more calls fired together hang off one disclosure header, drawn in
- * the same grammar as a thinking block (`●` pulsing while live, `▾` once
- * done), with each call on one line and its outcome in a right-hand column:
+ * Two or more calls fired together hang off a shared tree, each call on one
+ * line with its outcome in a right-hand column:
  *
- *   ▾ 3 tool calls · 1.4s
  *   ├─ ● Read    agent/skills/pi-config-sync/SKILL.md   115 lines
  *   ├─ ● Run     $ ls -la ~/dotfiles/config/pi/           14 lines
  *   └─ ● Search  "defaultTools" in agent/settings.json    18 results
  *
- * The header only says what the rows cannot: how many, how long overall, and
- * how many failed. Calls from consecutive assistant messages group too, as
- * long as nothing visible sits between them.
+ * The tree is the summary: how many is the branch count, and the per-call
+ * outcomes sit on their rows. What the rows cannot say — turns' totals,
+ * durations, failures — goes on the turn's Σ footer. Calls from consecutive
+ * assistant messages group too, as long as nothing visible sits between them.
  */
 export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Fragment[] {
 	const render = (r: ToolRow, w: number) => (r as unknown as { render(x: number): string[] }).render(w);
@@ -477,36 +533,7 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 		});
 	});
 
-	// ── header ──────────────────────────────────────────────────────────────
-	const running = shown.some((r) => r.isPartial);
-	const failures = shown.filter((r) => r.result?.isError === true).length;
-	const sep = paint(theme, "fact", " · ");
-	const starts = shown
-		.map((r) => RUN_STARTS.get(r as unknown as object))
-		.filter((s): s is number => s !== undefined);
-	const first = starts.length > 0 ? Math.min(...starts) : undefined;
-	let clock = "";
-	if (first !== undefined) {
-		if (running) {
-			if (Date.now() - first >= DURATION_AFTER_MS) clock = durationLabel(Date.now() - first);
-		} else {
-			// Wall time of the whole group. A member with no stamps finished
-			// before it was ever drawn running, so it cannot be the last one.
-			const ends = shown
-				.map((r) => RUN_ENDS.get(r as unknown as object))
-				.filter((e): e is number => e !== undefined);
-			const total = ends.length > 0 ? Math.max(...ends) - first : 0;
-			if (total >= DURATION_AFTER_MS) clock = durationLabel(total);
-		}
-	}
-
-	const mark = running
-		? theme.fg(pulseOn() ? "warning" : "dim", glyph.bullet)
-		: paint(theme, "fact", glyph.open);
-	let header = `${pad}${mark} ${paint(theme, "fact", `${shown.length} tool calls`)}`;
-	if (running) header += sep + paint(theme, "live", "running");
-	if (clock) header += sep + paint(theme, "fact", clock);
-	if (failures > 0) header += sep + theme.fg("error", `${failures} failed`);
-
-	return [{ lines: [truncateToWidth(header, width)], source: NOWHERE }, ...body];
+	// No header: the tree is the summary. The turn footer (Σ) carries what the
+	// rows cannot — totals, durations, failures — once, at the end of the turn.
+	return body;
 }

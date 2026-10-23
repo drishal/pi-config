@@ -316,10 +316,9 @@ const REGISTRY: Record<string, Spec> = {
 	write: {
 		category: "edit",
 		verb: "Write",
-		glue: "",
 		subject: (c) => {
 			const where = mutatePath(c);
-			return where ? `(${shortPath(where)})` : undefined;
+			return where ? shortPath(where) : undefined;
 		},
 		facts: (c) => {
 			if (c.row.result?.isError) return ["failed"];
@@ -344,14 +343,13 @@ const REGISTRY: Record<string, Spec> = {
 const EDIT: Spec = {
 	category: "edit",
 	verb: "Edit",
-	glue: "",
 	hidden: (c) => {
 		const batch = c.details.batch as { last?: unknown } | undefined;
 		return batch !== undefined && batch.last === false && !c.row.isPartial;
 	},
 	subject: (c) => {
 		const where = mutatePath(c);
-		return where ? `(${shortPath(where)})` : undefined;
+		return where ? shortPath(where) : undefined;
 	},
 	facts: (c) => {
 		if (c.row.result?.isError) return ["failed"];
