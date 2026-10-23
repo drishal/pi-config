@@ -115,7 +115,7 @@ export type RowOpts = {
  * A *running* call instead puts the whole command on `└ $`, wrapped rather
  * than truncated, so you can actually read what is executing:
  *
- *   ● Run · running… · 4s
+ *   ● Bash · running… · 4s
  *     └ $ cd ~/.pi && cat .gitignore && echo "═══ SIZES ═══"
  *       && find . -type f -newer agent/settings.json | head -5 …
  *

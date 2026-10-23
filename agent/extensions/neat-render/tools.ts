@@ -2,7 +2,7 @@
  * tools — what each tool call did, in one row of words.
  *
  * A row is described by a registry entry, not by an if-chain: a verb (`Read`,
- * `Search`, `Run`…), a category that feeds the turn summary, the subject (a
+ * `Search`, `Bash`…), a category that feeds the turn summary, the subject (a
  * path, a command, a query), and the facts worth keeping (line counts, exit
  * codes, result counts). `summarize` is the only thing that knows
  * tool-specific argument shapes; the row renderer just lays the words out.
@@ -15,7 +15,7 @@ export type Category = "read" | "run" | "search" | "fetch" | "edit" | "other";
 
 /** A tool row reduced to verb + subject + trailing facts. */
 export type Summary = {
-	/** The verb: Read, Search, Run. Always one word unless a tool is unknown. */
+	/** The verb: Read, Search, Bash. Always one word unless a tool is unknown. */
 	verb: string;
 	category: Category;
 	subject?: string;
@@ -215,7 +215,9 @@ const REGISTRY: Record<string, Spec> = {
 
 	bash: {
 		category: "run",
-		verb: "Run",
+		// `Bash` names the shell the command runs in; the `$ ` subject already
+		// says it is a command line, so the verb stays the tool's own name.
+		verb: "Bash",
 		note: (c) => splitLeadingComments(str(c.args.command) ?? str(c.args.cmd) ?? "").note,
 		subject: (c) => `$ ${splitLeadingComments(str(c.args.command) ?? str(c.args.cmd) ?? "").command}`,
 		facts: (c) => {

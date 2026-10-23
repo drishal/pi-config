@@ -365,7 +365,7 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
  *
  * A lone call is a bulleted row; continuation lines align under its text:
  *
- *   ● Run $ grep -rniE '(api[_-]?key|secret|token)' .
+ *   ● Bash $ grep -rniE '(api[_-]?key|secret|token)' .
  *     └ 80 lines
  *
  * Two or more calls fired together hang off one disclosure header, drawn in
