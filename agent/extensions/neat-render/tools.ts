@@ -29,6 +29,8 @@ export type Summary = {
 	/** The model's own remark about the call (a bash command's leading
 	 *  `# comment` lines), shown dim on its own line instead of in the subject. */
 	note?: string;
+	/** highlight.js language for the subject, when the subject is code. */
+	lang?: string;
 };
 
 /** Everything a registry entry may look at. */
@@ -46,6 +48,7 @@ type Spec = {
 	category: Category;
 	verb: string | ((c: Ctx) => string);
 	subject?(c: Ctx): string | undefined;
+	lang?: string | ((c: Ctx) => string | undefined);
 	facts?(c: Ctx): string[];
 	body?(c: Ctx): string[] | undefined;
 	note?(c: Ctx): string | undefined;
@@ -218,6 +221,7 @@ const REGISTRY: Record<string, Spec> = {
 		// `Bash` names the shell the command runs in; the `$ ` subject already
 		// says it is a command line, so the verb stays the tool's own name.
 		verb: "Bash",
+		lang: "bash",
 		note: (c) => splitLeadingComments(str(c.args.command) ?? str(c.args.cmd) ?? "").note,
 		subject: (c) => `$ ${splitLeadingComments(str(c.args.command) ?? str(c.args.cmd) ?? "").command}`,
 		facts: (c) => {
@@ -240,6 +244,10 @@ const REGISTRY: Record<string, Spec> = {
 		verb: (c) => {
 			const lang = str(c.args.language);
 			return lang === "js" ? "JavaScript" : lang === "py" ? "Python" : "Eval";
+		},
+		lang: (c) => {
+			const lang = str(c.args.language);
+			return lang === "js" ? "javascript" : lang === "py" ? "python" : undefined;
 		},
 		note: (c) =>
 			splitLeadingComments(
@@ -291,6 +299,19 @@ const REGISTRY: Record<string, Spec> = {
 	},
 	web_fetch: { category: "fetch", verb: "Fetch" },
 	get_search_content: { category: "fetch", verb: "Fetch" },
+
+	codemode: {
+		category: "run",
+		// The model writes JavaScript that calls other tools. The verb matches
+		// what the fallback used to produce, so only the colour is new.
+		verb: "Codemode",
+		lang: "javascript",
+		subject: (c) => {
+			const rows = (str(c.args.code) ?? "").split("\n").filter((l) => l.trim());
+			return rows.length > 1 ? `${rows[0]} …` : rows[0];
+		},
+		facts: lineFacts,
+	},
 
 	write: {
 		category: "edit",
@@ -386,6 +407,7 @@ export function summarize(row: ToolRow): Summary {
 		verb: typeof spec.verb === "function" ? spec.verb(ctx) : spec.verb,
 		category: spec.category,
 		subject: spec.subject?.(ctx),
+		lang: typeof spec.lang === "function" ? spec.lang(ctx) : spec.lang,
 		glue: spec.glue,
 		facts: spec.facts?.(ctx) ?? [],
 		body: spec.body?.(ctx),

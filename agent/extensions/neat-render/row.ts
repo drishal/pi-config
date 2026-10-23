@@ -47,6 +47,41 @@ export const LEAD_LINES = new WeakMap<ToolRow, number>();
 /** Rows the turn renderer is currently drawing as a tree child. */
 export const GROUPED = new WeakSet<object>();
 
+/**
+ * Highlighted subjects, per row. A subject never changes once the call is
+ * issued, but rows render on every frame — without this, every frame would
+ * re-run highlight.js on every visible row. Entries are short strings; the
+ * cap is only against width changes piling up (one key per width).
+ */
+const HL_CACHE = new WeakMap<ToolRow, Map<string, string>>();
+
+/**
+ * A budgeted subject line, syntax-highlighted when the registry says the
+ * subject is code. `text` must already fit its budget: highlighting adds no
+ * visible width but does add colour codes, so truncating *after* would risk
+ * cutting one open. Without a language this is today's plain subject.
+ */
+export function codeSubject(row: ToolRow, text: string, theme: ThemeLike, lang: string | undefined): string {
+	if (!lang) return subjectText(theme, text);
+	let cached = HL_CACHE.get(row);
+	if (!cached) {
+		cached = new Map();
+		HL_CACHE.set(row, cached);
+	}
+	const key = `${lang}│${text}`;
+	const hit = cached.get(key);
+	if (hit !== undefined) return hit;
+	let line: string;
+	try {
+		line = highlightCode(text, lang)[0] ?? subjectText(theme, text);
+	} catch {
+		line = subjectText(theme, text);
+	}
+	if (cached.size > 8) cached.clear();
+	cached.set(key, line);
+	return line;
+}
+
 /** Verb column width of the tree being drawn right now; 0 outside a tree. */
 let treeVerbWidth = 0;
 
@@ -126,7 +161,7 @@ export type RowOpts = {
 export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: RowOpts = {}): string[] {
 	const { start, took, verbPad, tree, align } = opts;
 	const summary = summarize(row);
-	const { subject, facts, glue, body: extra, hidden, note } = summary;
+	const { subject, facts, glue, body: extra, hidden, note, lang } = summary;
 	if (hidden) return [];
 
 	const live = (text: string) => liveText(theme, text);
@@ -166,7 +201,7 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 		return [
 			...noteLine,
 			header,
-			...lines.map((l, i) => fit((i === 0 ? lead : "  ") + subjectText(theme, l), width)),
+			...lines.map((l, i) => fit((i === 0 ? lead : "  ") + codeSubject(row, l, theme, lang), width)),
 		];
 	}
 
@@ -182,7 +217,8 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 	let head = verb;
 	if (subject) {
 		const used = visibleWidth(head) + visibleWidth(join);
-		head += `${join}${subjectText(theme, oneLine(subject, Math.max(8, width - used - reserve)))}`;
+		const budgeted = oneLine(subject, Math.max(8, width - used - reserve));
+		head += `${join}${codeSubject(row, budgeted, theme, lang)}`;
 	}
 
 	if (running) {
