@@ -1,19 +1,19 @@
 /**
  * thinking — one line for a reasoning block, not a wall of italic prose.
  *
- *   ● Thinking 3s │ …let me do one more round of distinct tools   live
- *   ▸ Thinking 2.1s — The bug is in the batch commit path…      hidden
- *   └─ Thinking 2.1s                                            shown
+ *   └─ Thinking 2.1s ~140 tokens                                shown
  *      The bug is in the batch commit path: the last member carries the
  *      combined diff, so the earlier rows render nothing.
+ *
+ *   ● Thinking 3s ~40 tokens │ …let me do one more round      hidden, live
+ *   Thinking 2.1s ~140 tokens                                  hidden, done
  *
  * While the block is still streaming the line rolls with the latest thought,
  * so a live turn shows what is happening now rather than everything so far.
  *
- * Visibility is pi's alone: Ctrl+T for all blocks, a click for one. The block
- * keeps its MouseRegion, so clicks and Ctrl+T keep working and no pi logic is
- * duplicated. `Thinking` is the word here because it is what the model is
- * doing, not what it finished doing.
+ * Visibility is pi's alone, through Ctrl+T. When reasoning is shown it is
+ * shown in full, and a click on a block collapses that one. When it is hidden
+ * there is nothing to open, so the single line swallows the click.
  */
 
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
@@ -87,17 +87,16 @@ function timeFor(host: object, index: number): { start: number; end?: number } {
 	return entry;
 }
 
-/** The first sentence of a thought, which is what the collapsed line shows. */
-function firstSentence(text: string): string {
-	const flat = text.replace(/```[\s\S]*?(```|$)/g, " ").replace(/\s+/g, " ").trim();
-	const cut = flat.search(/[.!?](\s|$)/);
-	return cut > 20 ? flat.slice(0, cut + 1) : flat;
-}
-
 /** The newest line of a live thought: the rolling preview. */
 function latestLine(text: string): string {
 	const rows = text.split("\n").map((l) => l.replace(/^[\s>*\-|#`]+/, "").trim()).filter(Boolean);
 	return rows[rows.length - 1] ?? "";
+}
+
+/** A rough token count from the character count, as pi's own label does. */
+function tokenCount(chars: number): string {
+	const n = Math.max(1, Math.round(chars / 4));
+	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
 /** Human duration of a run, when one was measured. */
@@ -129,42 +128,46 @@ export class ThinkingView {
 	render(width: number): string[] {
 		const theme = state.theme;
 		if (!theme) return this.body?.render(width) ?? [];
-		// pi's Ctrl+T decides whether the prose is shown; without it (hidden),
-		// the run keeps its disclosure line.
-		const body = this.body;
 		const pad = " ".repeat(this.pad);
 		const elapsed = runDuration(this.start, this.run.done ? (this.end ?? Date.now()) : undefined);
+		// `Thinking 0.6s ~140 tokens`, the way pi's own label counted tokens.
+		const tokens = `~${tokenCount(this.run.text.length)} tokens`;
+		const meta = factText(theme, [elapsed, tokens].filter(Boolean).join(" "));
+		const label = paint(theme, "thought", "Thinking");
 
+		// Visible (pi's Ctrl+T is off): the reasoning itself, hanging under its
+		// label. While streaming it simply grows; the elapsed time ticks.
+		if (this.body) {
+			if (!this.run.done) watch(this);
+			const elbow = paint(theme, "rule", "└─");
+			const lines = [fit(`${pad}${elbow} ${label} ${meta}`, width)];
+			const hang = " ".repeat(this.pad + 3);
+			const room = Math.max(8, width - hang.length);
+			for (const line of this.body.render(room)) lines.push(fit(`${hang}${line}`, width));
+			return lines;
+		}
+
+		// Hidden: one line and nothing under it. Nothing to open either — the
+		// click pi would use to reveal the block is swallowed in handleMouse.
 		if (!this.run.done) {
-			// Live: the header says how long it has been thinking, then the
-			// newest line of the thought, so the turn shows what is happening
-			// now instead of a growing wall.
+			// Still streaming, so the line rolls with the newest thought and
+			// the bullet pulses: this line is the only feedback there is.
 			watch(this);
 			const dot = theme.fg(pulseOn() ? "warning" : "dim", glyph.bullet);
-			const head = `${dot} ${paint(theme, "thought", "Thinking")}${elapsed ? ` ${factText(theme, elapsed)}` : ""}`;
+			const head = `${pad}${dot} ${label} ${meta}`;
 			const bar = paint(theme, "rule", glyph.bar);
 			const room = Math.max(8, width - visibleWidth(head) - 4);
 			const preview = oneLine(latestLine(this.run.text), room);
-			return [fit(`${pad}${head}${preview ? ` ${bar} ${noteText(theme, preview)}` : ""}`, width)];
+			return [fit(`${head}${preview ? ` ${bar} ${noteText(theme, preview)}` : ""}`, width)];
 		}
+		return [fit(`${pad}${label} ${meta}`, width)];
+	}
 
-		// Shown: an elbow names the block and the reasoning hangs under the
-		// label, the way a thought tree reads — no bar to trip over on every
-		// line. Hidden: one disclosure line with its first sentence.
-		const lines: string[] = [];
-		if (body) {
-			const elbow = paint(theme, "rule", "└─");
-			const head = `${pad}${elbow} ${paint(theme, "thought", "Thinking")}${elapsed ? ` ${factText(theme, elapsed)}` : ""}`;
-			lines.push(fit(head, width));
-			const hang = " ".repeat(this.pad + 3);
-			const room = Math.max(8, width - hang.length);
-			for (const line of body.render(room)) lines.push(fit(`${hang}${line}`, width));
-			return lines;
-		}
-		const head = `${pad}${paint(theme, "fact", glyph.shut)} ${paint(theme, "thought", "Thinking")}${elapsed ? ` ${factText(theme, elapsed)}` : ""}`;
-		const summary = oneLine(firstSentence(this.run.text), Math.max(8, width - visibleWidth(head) - 4));
-		lines.push(fit(`${head}${summary ? ` ${paint(theme, "fact", "—")} ${summary}` : ""}`, width));
-		return lines;
+	handleMouse(event: { type?: string }): unknown {
+		// Hidden reasoning has no body to open, so swallow the click instead of
+		// letting pi toggle this block open.
+		if (this.body) return undefined;
+		return event?.type === "click" ? { handled: true } : undefined;
 	}
 
 	invalidate(): void {

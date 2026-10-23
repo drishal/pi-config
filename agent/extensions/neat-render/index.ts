@@ -11,7 +11,7 @@
  *   ├─ ● Run     $ ls ~/.pi/agent/extensions        12 lines
  *   └─ ● Search  "index.ts" in agent/extensions     4 results
  *
- *   └─ Thinking 2.1s
+ *   └─ Thinking 2.1s ~140 tokens
  *      A directory extension is loaded through its index.ts, so the entry
  *      point is the thing to read.
  *

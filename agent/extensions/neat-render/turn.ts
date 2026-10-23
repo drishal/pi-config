@@ -191,11 +191,27 @@ function blocksOf(parts: unknown[], width: number, keepThinking: boolean): Block
  */
 const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "").trim();
 
-/** A line the reasoning drew: its header, or one of its `│` body lines. */
-const isThought = (line: string) => {
-	const text = plain(line);
-	return text.startsWith(`${glyph.open} Thought`) || text.startsWith(`${glyph.shut} Thought`) || text.startsWith(glyph.bar);
-};
+/**
+ * How many of the message's rendered lines belong to reasoning (and to the
+ * blank spacers pi puts around it), i.e. where its own text starts. Worked out
+ * from the component's children rather than from the drawn glyphs, because the
+ * reasoning body is hung by spaces and cannot be told from a paragraph.
+ */
+function thinkingPrefix(host: AssistantInternals, width: number): number {
+	const kids = host.contentContainer?.children ?? [];
+	let count = 0;
+	for (const kid of kids) {
+		const child = kid as Renderable & { handleMouse?: unknown };
+		if (typeof child?.render !== "function") continue;
+		const lines = child.render(width);
+		const thinking = typeof child.handleMouse === "function";
+		// A spacer draws nothing; it belongs to whatever comes next.
+		const blank = lines.every(isBlank);
+		if (!thinking && !blank) return count;
+		count += lines.length;
+	}
+	return count;
+}
 
 function finishedMessage(
 	host: AssistantInternals & Renderable,
@@ -205,25 +221,34 @@ function finishedMessage(
 ): string[] {
 	const label = host.hiddenThinkingLabel;
 	const room = bullet ? Math.max(8, width - 2) : width;
-	const lines = trimBlank(host.render(room))
-		// With thinking hidden, pi draws a bare label instead of the block.
-		.filter((line) => !label || plain(line) !== label)
-		// A collapsed reasoning run leaves its spacer behind; keep one blank.
-		.filter((line, index, all) => !(isBlank(line) && index > 0 && isBlank(all[index - 1])));
-	if (!bullet) return lines;
+	// Which lines are the reasoning's, decided from the component's children
+	// before any line is dropped — so filtering and trimming cannot shift it.
+	const prefix = thinkingPrefix(host, room);
+	type Row = { text: string; thinking: boolean };
+	let rows: Row[] = host.render(room).map((text, index) => ({ text, thinking: index < prefix }));
+	// With thinking hidden, pi draws a bare label instead of the block.
+	if (label) rows = rows.filter((row) => plain(row.text) !== label);
+	// A collapsed reasoning run leaves its spacer behind; keep one blank.
+	rows = rows.filter((row, index, all) => !(isBlank(row.text) && index > 0 && isBlank(all[index - 1].text)));
+	// Drop the blank padding pi puts around a message.
+	let from = 0;
+	let to = rows.length;
+	while (from < to && isBlank(rows[from].text)) from++;
+	while (to > from && isBlank(rows[to - 1].text)) to--;
+	rows = rows.slice(from, to);
+
+	if (!bullet) return rows.map((row) => row.text);
 	const dot = paint(theme, "answer", glyph.bullet);
 	let marked = false;
-	return lines.map((line) => {
-		if (isBlank(line)) return line;
-		// Reasoning keeps its own indent above the answer.
-		if (!marked && isThought(line)) return line;
-		if (marked) return `  ${line}`;
+	return rows.map((row) => {
+		// Reasoning keeps its own shape; the bullet lands on the message's own
+		// first line, and everything from there indents under it.
+		if (isBlank(row.text) || row.thinking) return row.text;
+		if (marked) return `  ${row.text}`;
 		marked = true;
-		return `${dot} ${line}`;
+		return `${dot} ${row.text}`;
 	});
 }
-
-/* ── folding a finished turn ───────────────────────────────────────────── */
 
 /* ── patch: turns ──────────────────────────────────────────────────────── */
 
