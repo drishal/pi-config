@@ -146,7 +146,7 @@ export type RowOpts = {
 export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: RowOpts = {}): string[] {
 	const { start, took, tree, align } = opts;
 	const summary = summarize(row);
-	const { subject, facts, glue, body: extra, hidden, note, lang } = summary;
+	const { subject, facts, body: extra, hidden, note, lang } = summary;
 	if (hidden) return [];
 
 	const live = (text: string) => liveText(theme, text);
@@ -161,7 +161,7 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 	}
 
 	const sep = factText(theme, " · ");
-	const join = glue ?? " ";
+	const join = " ";
 	const running = row.isPartial === true;
 
 	// The model's remark reads first, like a comment above a shell command.

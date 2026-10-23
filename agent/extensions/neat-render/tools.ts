@@ -20,8 +20,6 @@ export type Summary = {
 	category: Category;
 	subject?: string;
 	facts: string[];
-	/** Text between verb and subject. "" gives `Edit(path)`; default " ". */
-	glue?: string;
 	/** Extra lines under the facts line, already split. Diff rows for edits. */
 	body?: string[];
 	/** Render nothing at all — a batch member that is not the commit. */
@@ -53,7 +51,6 @@ type Spec = {
 	body?(c: Ctx): string[] | undefined;
 	note?(c: Ctx): string | undefined;
 	hidden?(c: Ctx): boolean;
-	glue?: string;
 };
 
 /**
@@ -406,7 +403,6 @@ export function summarize(row: ToolRow): Summary {
 		category: spec.category,
 		subject: spec.subject?.(ctx),
 		lang: typeof spec.lang === "function" ? spec.lang(ctx) : spec.lang,
-		glue: spec.glue,
 		facts: spec.facts?.(ctx) ?? [],
 		body: spec.body?.(ctx),
 		hidden: spec.hidden?.(ctx) ?? false,
