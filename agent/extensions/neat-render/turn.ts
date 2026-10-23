@@ -21,7 +21,7 @@
  */
 
 import { AssistantMessageComponent, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Container, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import {
 	type Patchable,
 	type RenderFn,
@@ -40,7 +40,6 @@ import {
 	RUN_ENDS,
 	RUN_STARTS,
 	durationLabel,
-	pulseOn,
 } from "./clock.ts";
 import { THINKING_TOTALS, tokenCount } from "./thinking.ts";
 import { GROUPED, LEAD_LINES, bullet, isBlank, trimBlank } from "./row.ts";
