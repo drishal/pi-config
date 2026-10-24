@@ -1,14 +1,15 @@
 /**
  * thinking — one line for a reasoning block, not a wall of italic prose.
  *
- *   └─ Thinking 2.1s ~140 tokens                                shown
+ *   ◇ Thinking 2.1s ~140 tokens                                shown
  *      The bug is in the batch commit path: the last member carries the
  *      combined diff, so the earlier rows render nothing.
  *
- *   ● Thinking 3s ~40 tokens │ …let me do one more round      hidden, live
- *   Thinking 2.1s ~140 tokens                                  hidden, done
+ *   ◇ Thinking 3s ~40 tokens │ …let me do one more round      hidden, live
+ *   ◇ Thinking 2.1s ~140 tokens                                hidden, done
  *
- * While the block is still streaming the line rolls with the latest thought,
+ * While the block is still streaming the line rolls with the latest thought
+ * and the `◇` fills to `◆` on every other tick while the elapsed time runs,
  * so a live turn shows what is happening now rather than everything so far.
  *
  * Visibility is pi's alone, through Ctrl+T. When reasoning is shown it is
@@ -22,12 +23,14 @@ import {
 	factText,
 	fit,
 	glyph,
+	isHovered,
+	markText,
 	noteText,
 	oneLine,
 	paint,
 	state,
 } from "./style.ts";
-import { durationLabel, pulseOn, watch } from "./clock.ts";
+import { blinkOn, durationLabel, watch } from "./clock.ts";
 import type { Renderable } from "./row.ts";
 
 export const THINK_PATCH = Symbol.for("dr.pi.neatRender.thinking.v1");
@@ -132,14 +135,24 @@ export class ThinkingView {
 		const tokens = `~${tokenCount(this.run.text.length)} tokens`;
 		const meta = factText(theme, [elapsed, tokens].filter(Boolean).join(" "));
 		const label = paint(theme, "thought", "Thinking");
+		const live = !this.run.done;
+		// While the model is thinking the marker fills on every other tick:
+		// hollow and dim, then filled and live. Both are one column, so the
+		// label column never moves.
+		const marker = live
+			? blinkOn()
+				? paint(theme, "live", glyph.thoughtFilled)
+				: markText(theme, glyph.thought)
+			: markText(theme, glyph.thought);
 
 		// Visible (pi's Ctrl+T is off): the reasoning itself, hanging under its
 		// label. While streaming it simply grows; the elapsed time ticks.
 		if (this.body) {
-			if (!this.run.done) watch(this);
-			const elbow = paint(theme, "rule", "└─");
-			const lines = [fit(`${pad}${elbow} ${label} ${meta}`, width)];
-			const hang = " ".repeat(this.pad + 3);
+			if (live) watch(this);
+			const lines = [fit(`${pad}${marker} ${label} ${meta}`, width)];
+			// The body hangs under the label, at the same column the tool rows
+			// start their subject, so reasoning and work share one gutter.
+			const hang = " ".repeat(this.pad + 1);
 			const room = Math.max(8, width - hang.length);
 			for (const line of this.body.render(room)) lines.push(fit(`${hang}${line}`, width));
 			return lines;
@@ -147,18 +160,17 @@ export class ThinkingView {
 
 		// Hidden: one line and nothing under it. Nothing to open either — the
 		// click pi would use to reveal the block is swallowed in handleMouse.
-		if (!this.run.done) {
+		if (live) {
 			// Still streaming, so the line rolls with the newest thought and
-			// the bullet pulses: this line is the only feedback there is.
+			// the marker blinks: this line is the only feedback there is.
 			watch(this);
-			const dot = theme.fg(pulseOn() ? "warning" : "dim", glyph.bullet);
-			const head = `${pad}${dot} ${label} ${meta}`;
+			const head = `${pad}${marker} ${label} ${meta}`;
 			const bar = paint(theme, "rule", glyph.bar);
 			const room = Math.max(8, width - visibleWidth(head) - 4);
 			const preview = oneLine(latestLine(this.run.text), room);
 			return [fit(`${head}${preview ? ` ${bar} ${noteText(theme, preview)}` : ""}`, width)];
 		}
-		return [fit(`${pad}${label} ${meta}`, width)];
+		return [fit(`${pad}${marker} ${label} ${meta}`, width)];
 	}
 
 	handleMouse(event: { type?: string }): unknown {

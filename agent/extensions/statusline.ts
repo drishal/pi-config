@@ -44,6 +44,8 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+// The transcript's palette, so the footer and the turns speak with one voice.
+import { role } from "./neat-render/style.ts";
 
 type Theme = { fg(color: string, text: string): string };
 type Tui = { requestRender(): void };
@@ -190,25 +192,25 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function lineOne(theme: Theme, statuses: ReadonlyMap<string, string>): string {
-		const dot = theme.fg("dim", config.separator);
+		const dot = theme.fg(role.fact, config.separator);
 		const parts: string[] = [];
 		if (model) {
-			parts.push(theme.fg("accent", model.id));
+			parts.push(theme.fg(role.verb, model.id));
 			const name = ctx?.modelRegistry.getProviderDisplayName(model.provider) ?? model.provider;
-			parts.push(theme.fg("muted", name));
+			parts.push(theme.fg(role.meta, name));
 		} else {
-			parts.push(theme.fg("dim", "no model"));
+			parts.push(theme.fg(role.meta, "no model"));
 		}
 		const level = pi.getThinkingLevel();
 		if (level) parts.push(theme.fg(`thinking${level[0].toUpperCase()}${level.slice(1)}`, level));
 		const session = pi.getSessionName();
-		if (session) parts.push(theme.fg("muted", session));
+		if (session) parts.push(theme.fg(role.meta, session));
 
 		const shown = [...statuses]
 			.filter(([key]) => !config.hide.includes(key))
 			.map(([key, text]) => compactStatus(key, text).replace(/\s*\r?\n\s*/g, " ").trim())
 			.filter(Boolean);
-		const right = shown.length ? theme.fg("dim", shown.join(config.separator)) : "";
+		const right = shown.length ? theme.fg(role.meta, shown.join(config.separator)) : "";
 		const left = parts.join(dot);
 		// The model line wins: statuses shrink first, and go if nothing useful fits.
 		const room = width - visibleWidth(left) - 2;
@@ -216,11 +218,11 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function lineTwo(theme: Theme, branch: string | null): string {
-		const dot = theme.fg("dim", config.separator);
+		const dot = theme.fg(role.fact, config.separator);
 		const left =
 			ship.text ||
-			(ctx ? theme.fg("accent", path.basename(ctx.cwd)) : "") +
-				(branch ? theme.fg("dim", " on ") + theme.fg("muted", branch) : "");
+			(ctx ? theme.fg(role.verb, path.basename(ctx.cwd)) : "") +
+				(branch ? theme.fg(role.fact, " on ") + theme.fg(role.meta, branch) : "");
 
 		// Segments in display order; `p` is priority (lower = kept longer).
 		const segs: Array<{ p: number; text: string }> = [];
@@ -228,14 +230,14 @@ export default function (pi: ExtensionAPI) {
 		if (cu) {
 			const pct = cu.percent ?? 0;
 			const tok = cu.tokens ?? 0;
-			const color = reached(tok, pct, config.error) ? "error" : reached(tok, pct, config.warning) ? "warning" : "muted";
+			const color = reached(tok, pct, config.error) ? role.fail : reached(tok, pct, config.warning) ? role.live : role.meta;
 			segs.push({ p: 0, text: theme.fg(color, `${cu.tokens == null ? "?" : fmt(cu.tokens)}/${fmt(cu.contextWindow)}`) });
 		}
 		const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
-		if (prompt || usage.output) segs.push({ p: 1, text: theme.fg("dim", `↑${fmt(prompt)} ↓${fmt(usage.output)}`) });
-		if (usage.cacheRead) segs.push({ p: 3, text: theme.fg("dim", `cache ${Math.round((usage.cacheRead / prompt) * 100)}%`) });
-		if (usage.cost > 0) segs.push({ p: 2, text: theme.fg("dim", `$${usage.cost.toFixed(usage.cost < 1 ? 3 : 2)}`) });
-		if (rate !== undefined) segs.push({ p: 4, text: theme.fg("dim", `${rate < 10 ? rate.toFixed(1) : Math.round(rate)} tok/s`) });
+		if (prompt || usage.output) segs.push({ p: 1, text: theme.fg(role.fact, `↑${fmt(prompt)} ↓${fmt(usage.output)}`) });
+		if (usage.cacheRead) segs.push({ p: 3, text: theme.fg(role.fact, `cache ${Math.round((usage.cacheRead / prompt) * 100)}%`) });
+		if (usage.cost > 0) segs.push({ p: 2, text: theme.fg(role.fact, `$${usage.cost.toFixed(usage.cost < 1 ? 3 : 2)}`) });
+		if (rate !== undefined) segs.push({ p: 4, text: theme.fg(role.fact, `${rate < 10 ? rate.toFixed(1) : Math.round(rate)} tok/s`) });
 
 		// Keep the most important segments that fit next to at least a short left side.
 		const minLeft = Math.min(visibleWidth(left), 16);

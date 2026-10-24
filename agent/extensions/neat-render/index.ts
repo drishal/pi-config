@@ -6,25 +6,27 @@
  *   ❯ In a batch, launch a few read/grep commands.
  *
  *   Let me check how pi loads extensions…
- *   ▾ 3 tool calls · 1.4s
  *   ├─ ● Read    agent/extensions/eval/index.ts   48 lines
  *   ├─ ● Run     $ ls ~/.pi/agent/extensions        12 lines
  *   └─ ● Search  "index.ts" in agent/extensions     4 results
  *
- *   └─ Thinking 2.1s ~140 tokens
+ *   ◇ Thinking 2.1s ~140 tokens
  *      A directory extension is loaded through its index.ts, so the entry
  *      point is the thing to read.
  *
  *   ● Pi loads a directory extension from its index.ts.
  *
+ *   Σ 3 calls · 1.4s · ~140 thought
+ *
  * Nothing folds: a call is a row, a run of calls is a tree, and the reasoning
- * hangs under its own label. pi's Ctrl+O still opens every call at full size,
+ * hangs under its own marker. pi's Ctrl+O still opens every call at full size,
  * and its Ctrl+T still decides whether reasoning is shown.
  *
  * ── Files ─────────────────────────────────────────────────────────────────
  * style.ts palette and glyphs · tools.ts the per-tool registry · row.ts one
  * call · turn.ts prompt, spacing and the answer · thinking.ts reasoning lines
- * · table.ts compact markdown tables · clock.ts the shared ticker.
+ * · table.ts compact markdown tables · chrome.ts pi's own rules and summaries
+ * · clock.ts the shared ticker.
  *
  * ── Why this is a renderer, not a tool wrapper ─────────────────────────────
  * The obvious way to get compact rows is to re-register `read`/`bash` with
@@ -61,6 +63,7 @@ import { foldThinkingFences, installThinking, uninstallThinking } from "./thinki
 import { clearClock } from "./clock.ts";
 import { installTable, uninstallTable } from "./table.ts";
 import { installBackgroundMessages } from "./background.ts";
+import { BORDER_PATCH, installBorder, installSummaries, uninstallSummaries } from "./chrome.ts";
 import { type Patchable, type RenderFn, type ThemeLike, off, state } from "./style.ts";
 
 /* ── wiring ────────────────────────────────────────────────────────────── */
@@ -84,6 +87,9 @@ export default function (pi: ExtensionAPI) {
 	const rows = installRows();
 	const table = installTable();
 
+	// pi's own rules and summary boxes, in the transcript's grammar.
+	const border = installBorder();
+	installSummaries();
 	installBackgroundMessages(pi);
 	// The turn renderer composes the row renderer; both fall back to pi's own
 	// output on their own if pi's internals do not look the way they expect.
@@ -103,5 +109,7 @@ export default function (pi: ExtensionAPI) {
 		uninstall(card, CARD_PATCH);
 		uninstallThinking(thinking);
 		uninstallTable(table);
+		uninstall(border, BORDER_PATCH);
+		uninstallSummaries();
 	});
 }

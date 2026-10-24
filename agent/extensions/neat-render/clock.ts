@@ -1,11 +1,10 @@
 /**
  * clock — the one place time enters the transcript.
  *
- * pi repaints on change, not on a clock, so anything live (a pulsing bullet, a
- * running timer) has to arm its own repaint. One chain per component would be
- * a timer per row; here a single ticker runs while anything is live, pulses on
- * a counter (so two live rows can never disagree about the phase), and
- * invalidates every component that asked to be watched.
+ * pi repaints on change, not on a clock, so anything live (a running timer)
+ * has to arm its own repaint. One chain per component would be a timer per
+ * row; here a single ticker runs while anything is live and invalidates every
+ * component that asked to be watched.
  */
 
 import { state } from "./style.ts";
@@ -24,7 +23,7 @@ export const TIMER_AFTER_MS = 1500;
 /** Durations under this stay off the row; a column of "0.0s" is noise. */
 export const DURATION_AFTER_MS = 1000;
 
-/** Half-period of the live pulse, in ms. Also the tick interval. */
+/** Tick interval, in ms: how often a live timer re-checks itself. */
 const TICK_MS = 450;
 
 type Watcher = { invalidate?(): void };
@@ -33,11 +32,14 @@ type Watcher = { invalidate?(): void };
 const watchers = new Map<Watcher, number>();
 let tick = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
-
-/** Which half of the pulse we are in right now. */
-export function pulseOn(): boolean {
+/**
+ * The visible half of the live blink. One ticker, so every blinking marker on
+ * screen is in phase.
+ */
+export function blinkOn(): boolean {
 	return tick % 2 === 0;
 }
+
 
 /**
  * Keep a live component repainting.

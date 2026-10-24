@@ -4,24 +4,30 @@
  *   ❯ Read the container patch, then mark the answer.
  *
  *   Let me read the container patch first.
- *   ▾ 3 tool calls · 1.4s
  *   ├─ ● Read   agent/extensions/neat-render/turn.ts   525 lines
  *   └─ ● Search "chatContainer" in modes/interactive     3 results
  *
- *   └─ Thinking 2.1s
+ *   ◇ Thinking 2.1s
  *      A turn runs from one prompt to the next, so the fold has to live in
  *      Container.render.
  *
  *   ● A turn is the prompt plus everything up to the next prompt.
  *
+ *   Σ 2 calls · 1.4s · ~140 thought
+ *
  * Nothing is collapsed here: a call is a row, a run of calls is a tree, and
- * the reasoning hangs under its own label. pi's Ctrl+O still opens every call
- * at full size. Spacing is owned here: exactly one blank line between the
- * prompt, the work and the answer, and none inside the activity block.
+ * the reasoning hangs under its own marker. pi's Ctrl+O still opens every
+ * call at full size. Spacing is owned here: exactly one blank line between
+ * the prompt, the work and the answer, and none inside the activity block.
  */
 
-import { AssistantMessageComponent, ToolExecutionComponent, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { Container, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+	AssistantMessageComponent,
+	ToolExecutionComponent,
+	UserMessageComponent,
+	keyText,
+} from "@earendil-works/pi-coding-agent";
+import { Container } from "@earendil-works/pi-tui";
 import {
 	type Patchable,
 	type RenderFn,
@@ -30,12 +36,15 @@ import {
 	fit,
 	glyph,
 	inset,
+	isHovered,
 	noteText,
 	paint,
 	sameKey,
+	setHovered,
 	state,
 } from "./style.ts";
 import { summarize } from "./tools.ts";
+import { tokenCount } from "./thinking.ts";
 import {
 	DURATION_AFTER_MS,
 	RUN_ENDS,
@@ -66,31 +75,39 @@ export function installCard(): Patchable | undefined {
 		const text = (this as unknown as { text?: unknown }).text;
 		if (typeof text !== "string" || !text.trim()) return original.call(this, width);
 
-		// Claude Code draws the prompt as a `❯` quote over a plain full-width
-		// fill strip: no borders, so no box geometry to break. The raw text is
-		// wrapped and quoted directly, then each line is padded out to the
-		// full width and painted. Every painted line measures exactly `width`,
-		// which is all pi requires.
-		const mark = noteText(theme, glyph.prompt);
-		const room = Math.max(8, width - 2);
-		// The `❯` opens the quote once, Claude-style: wrapped lines and later
-		// paragraphs indent under it instead of repeating the marker.
-		const rows: string[] = [];
-		let opened = false;
-		for (const para of text.replace(/\n+$/, "").split("\n")) {
-			if (!para.trim()) {
-				rows.push("");
-				continue;
-			}
-			wrapTextWithAnsi(para, room).forEach((line) => {
-				rows.push(opened ? `  ${line}` : `${mark} ${line}`);
-				opened = true;
-			});
+		// pi's own Markdown draws the prompt — syntax, links, lists and the
+		// registered user-markdown transformers — and paints the fill strip.
+		// Taking its lines instead of re-wrapping the raw text keeps all of
+		// that; the child only gets the two-column gutter the `❯` sits in.
+		const children = (this as unknown as { children?: unknown[] }).children;
+		const body = children?.[0] as
+			| (Renderable & { paddingX?: number; paddingY?: number; invalidate?(): void })
+			| undefined;
+		if (!body || typeof body.render !== "function") return original.call(this, width);
+
+		if (body.paddingX !== 2 || body.paddingY !== 0) {
+			body.paddingX = 2;
+			body.paddingY = 0;
+			body.invalidate?.();
 		}
-		if (rows.length === 0) return original.call(this, width);
-		const out = rows.map((line) =>
-			theme.bg("userMessageBg", line + " ".repeat(Math.max(0, width - visibleWidth(line)))),
-		);
+
+		// The `❯` opens the quote once: wrapped lines and later paragraphs
+		// keep the gutter and indent under it instead of repeating the marker.
+		let opened = false;
+		const out = body.render(width).map((line) => {
+			if (opened || isBlank(line)) return line;
+			// Replace the gutter's first two columns, so the line stays `width`
+			// wide and the marker inherits the strip's background.
+			const marked = line.replace(/^((?:\x1b\[[0-9;]*m)*) {2}/, `$1${noteText(theme, glyph.prompt)} `);
+			if (marked !== line) opened = true;
+			return marked;
+		});
+		if (out.length === 0) return original.call(this, width);
+
+		// Markdown keeps a strip line for every trailing newline; the card ends
+		// where the prompt does.
+		while (out.length > 1 && isBlank(out[out.length - 1])) out.pop();
+
 		// Keep the shell-integration zone pi's own render emits.
 		out[0] = `${OSC133_ZONE_START}${out[0]}`;
 		out[out.length - 1] = `${out[out.length - 1]}${OSC133_ZONE_END}${OSC133_ZONE_FINAL}`;
@@ -119,6 +136,9 @@ type Block =
 	| { kind: "activity"; rows: ToolRow[] }
 	| { kind: "assistant"; comp: AssistantInternals; answer: boolean }
 	| { kind: "other"; comp: unknown; lines: string[] };
+
+/** How a message's own text is marked: bare, indented by the answer gutter, or bulleted. */
+type Mark = "none" | "gutter" | "bullet";
 
 /** A tool call or a streaming message means the turn is still running. */
 function isLive(parts: unknown[]): boolean {
@@ -184,10 +204,11 @@ function blocksOf(parts: unknown[], width: number, keepThinking: boolean): Block
 }
 
 /**
- * A finished message: pi's own render (so reasoning shows exactly as Ctrl+T
- * says, with its working clicks), the hidden thinking label taken back out,
- * and — for the answer — the accent bullet on the first line of text, with
- * every line under it indented to match.
+ * One assistant message: pi's own render (so reasoning shows exactly as
+ * Ctrl+T says, with its working clicks), the hidden thinking label taken back
+ * out, and — for the answer — the accent bullet on the first line of text.
+ * While the answer streams it keeps the same gutter with a space where the
+ * bullet will land, so its text never re-wraps when the turn finishes.
  *
  * Rendering through the component keeps its internal line count, and therefore
  * pi's mouse hit-testing, exactly right.
@@ -220,10 +241,15 @@ function finishedMessageUncached(
 	host: AssistantInternals & Renderable,
 	theme: ThemeLike,
 	width: number,
-	bullet: boolean,
+	mark: Mark,
 ): string[] {
 	const label = host.hiddenThinkingLabel;
-	const room = bullet ? Math.max(8, width - 2) : width;
+	// The answer's gutter: the row inset plus the marker column, before the
+	// message's own leading pad. Reserving it while the message streams keeps
+	// the text from re-wrapping when the bullet appears at the end.
+	const pad = inset();
+	const gutter = mark === "none" ? 0 : pad.length + 1;
+	const room = mark === "none" ? width : Math.max(8, width - gutter);
 	// Which lines are the reasoning's, decided from the component's children
 	// before any line is dropped — so filtering and trimming cannot shift it.
 	const prefix = thinkingPrefix(host, room);
@@ -240,20 +266,18 @@ function finishedMessageUncached(
 	while (to > from && isBlank(rows[to - 1].text)) to--;
 	rows = rows.slice(from, to);
 
-	let out: string[];
-	if (!bullet) out = rows.map((row) => row.text);
-	else {
-		const dot = paint(theme, "answer", glyph.bullet);
-		let marked = false;
-		out = rows.map((row) => {
-			// Reasoning keeps its own shape; the bullet lands on the message's own
-			// first line, and everything from there indents under it.
-			if (isBlank(row.text) || row.thinking) return row.text;
-			if (marked) return `  ${row.text}`;
-			marked = true;
-			return `${dot} ${row.text}`;
-		});
-	}
+	const dot = mark === "bullet" ? paint(theme, "answer", glyph.bullet) : "";
+	let marked = false;
+	const out = rows.map((row) => {
+		// Reasoning keeps its own shape; the marker lands on the message's own
+		// text, and everything from there indents under it.
+		if (isBlank(row.text) || row.thinking) return row.text;
+		if (mark === "none") return row.text;
+		if (mark === "gutter") return `${pad} ${row.text}`;
+		if (marked) return `${pad} ${row.text}`;
+		marked = true;
+		return `${pad}${dot}${row.text}`;
+	});
 	// pi brackets an assistant message in OSC 133 zones; the prompt carries the
 	// pair, so the body drops them. Stripped here, once, because this result is
 	// memoized — a turn-level scan would repeat it on every frame.
@@ -276,13 +300,13 @@ function finishedMessage(
 	host: AssistantInternals & Renderable,
 	theme: ThemeLike,
 	width: number,
-	bullet: boolean,
+	mark: Mark,
 ): string[] {
 	const hidden = host as unknown as { hideThinkingBlock?: boolean };
 	const key = [
 		theme,
 		width,
-		bullet,
+		mark,
 		host.hiddenThinkingLabel,
 		host.isStreaming === true,
 		hidden.hideThinkingBlock === true,
@@ -291,12 +315,15 @@ function finishedMessage(
 	] as const;
 	const hit = MESSAGE_CACHE.get(host as object);
 	if (hit && sameKey(hit.key, key)) return hit.lines;
-	const lines = finishedMessageUncached(host, theme, width, bullet);
+	const lines = finishedMessageUncached(host, theme, width, mark);
 	MESSAGE_CACHE.set(host as object, { key, lines });
 	return lines;
 }
 
 /* ── patch: turns ──────────────────────────────────────────────────────── */
+
+/** Marks the instance-level mouse fallback installed on the chat container. */
+const HOVER_BOUNDARY = Symbol.for("dr.pi.neatRender.hoverBoundary.v1");
 
 export const GROUP_PATCH = Symbol.for("dr.pi.neatRender.turn.v1");
 
@@ -326,6 +353,25 @@ export function installTurns(): Patchable | undefined {
 		// holds turns, so everything else passes straight through.
 		if (!kids.some((k) => k instanceof UserMessageComponent)) {
 			return original.call(this, width);
+		}
+
+		// The transcript container is also the mouse fallback: a move that lands
+		// on anything other than a row clears the hovered row's glow. Installed
+		// on this instance only, so other Containers keep pi's handler.
+		const self = this as unknown as {
+			handleMouse?: (event: { type?: string }) => unknown;
+			[key: symbol]: unknown;
+		};
+		if (!self[HOVER_BOUNDARY]) {
+			const inherited = self.handleMouse;
+			const parent = inherited
+				? inherited.bind(self)
+				: (Container.prototype as unknown as { handleMouse: (event: unknown) => unknown }).handleMouse.bind(self);
+			self.handleMouse = (event) => {
+				if (event?.type === "move" && setHovered(undefined)) state.renderer?.requestRender?.();
+				return parent(event);
+			};
+			self[HOVER_BOUNDARY] = true;
 		}
 
 		const lines: string[] = [];
@@ -378,6 +424,27 @@ type MouseEntry = { component: unknown; height: number };
 const NOWHERE = { render: () => [], handleMouse: () => undefined };
 
 /**
+ * The turn's own stopwatch, per prompt component. Tool rows carry start/end
+ * stamps already; a turn that made no calls has no other source for its
+ * elapsed time. A replayed turn was never live, so it gets no stopwatch.
+ */
+const TURN_CLOCK = new WeakMap<object, { start: number; end?: number }>();
+
+function turnElapsed(prompt: object, live: boolean): number | undefined {
+	let clock = TURN_CLOCK.get(prompt);
+	if (live) {
+		if (!clock) {
+			clock = { start: Date.now() };
+			TURN_CLOCK.set(prompt, clock);
+		}
+		return undefined;
+	}
+	if (!clock) return undefined;
+	if (clock.end === undefined) clock.end = Date.now();
+	return clock.end - clock.start;
+}
+
+/**
  * Lay out one turn: prompt, work, answer.
  *
  * Nothing is ever collapsed: the calls show as a tree, the reasoning as its
@@ -386,6 +453,7 @@ const NOWHERE = { render: () => [], handleMouse: () => undefined };
  */
 function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, width: number): Fragment[] {
 	const live = isLive(parts);
+	const elapsed = turnElapsed(prompt, live);
 	const blocks = blocksOf(parts, width, true);
 
 	// The prompt renders first; `push` adds a blank line before the first block,
@@ -411,9 +479,11 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
 		}
 		if (block.kind === "assistant") {
 			const host = block.comp as unknown as AssistantInternals & Renderable;
-			// A finished message always renders the same way; only a live one
-			// is left entirely to pi.
-			push(live ? trimBlank(host.render(width)) : finishedMessage(host, theme, width, block.answer), block.comp);
+			// The answer keeps the same two-column gutter while it streams; the
+			// bullet replaces the leading space when the turn finishes, so its
+			// text never re-wraps.
+			const mark: Mark = block.answer ? (live ? "gutter" : "bullet") : "none";
+			push(finishedMessage(host, theme, width, mark), block.comp);
 			return;
 		}
 		push(block.lines, block.comp);
@@ -430,57 +500,78 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
 	blocks.forEach((block, index) => {
 		if (index > cut) draw(block);
 	});
-	// A finished turn that did measurable work closes with its Σ total.
-	if (answerIndex >= 0 && !live) {
-		const f = sigmaFooter(blocks, theme, width);
+	// A finished turn closes with its Σ total: the calls, the time, the
+	// reasoning — or just the time, when it did no work.
+	if (!live) {
+		const f = sigmaFooter(blocks, theme, width, elapsed);
 		if (f) push(f.lines, f.source);
 	}
-	// pi brackets an assistant message in OSC 133 zones for shell integration;
-	// the prompt already carries the pair, so the body drops them. Finished
-	// messages are stripped as they are memoized; only a live turn, which pi
-	// still renders directly, needs this scan.
-	if (live) {
-		for (const fragment of out.slice(1)) fragment.lines = fragment.lines.map(stripZones);
-	}
+	// Every assistant message goes through finishedMessage, which strips pi's
+	// OSC 133 brackets; the prompt carries the pair for the turn.
 	return out;
 }
 
 /**
- * The Σ footer: one line under the answer when the turn made calls — calls,
- * wall time and failures. The reasoning's own token count is already on its
- * Thinking line, so it is not repeated here; a turn that only thought has
- * nothing to total.
+ * The Σ footer: one line under the answer when the turn did measurable work —
+ * calls, wall time, reasoning and failures. It is not a tree node, so it uses
+ * its own marker instead of the tool `└`.
  *
- *   └ Σ 3 calls · 7.5s
+ *   Σ 3 calls · 7.5s · ~640 thought
  */
-function sigmaFooter(blocks: Block[], theme: ThemeLike, width: number): Fragment | undefined {
+function sigmaFooter(
+	blocks: Block[],
+	theme: ThemeLike,
+	width: number,
+	elapsed: number | undefined,
+): Fragment | undefined {
 	const pad = inset();
 	const sep = paint(theme, "fact", " · ");
-	const elbow = paint(theme, "rule", "└ Σ");
+	const mark = paint(theme, "meta", "Σ");
 	const parts: string[] = [];
 
 	let calls = 0;
+	let expanded = false;
 	let failures = 0;
 	let first = Number.POSITIVE_INFINITY;
 	let last = 0;
+	let thoughtChars = 0;
 	for (const block of blocks) {
 		if (block.kind === "activity") {
 			for (const row of block.rows) {
 				calls++;
 				if (row.result?.isError) failures++;
+				if (row.expanded) expanded = true;
 				const s = RUN_STARTS.get(row as unknown as object);
 				const e = RUN_ENDS.get(row as unknown as object);
 				if (s !== undefined && s < first) first = s;
 				if (e !== undefined && e > last) last = e;
 			}
+		} else if (block.kind === "assistant") {
+			for (const part of block.comp.lastMessage?.content ?? []) {
+				if (part.type === "thinking") thoughtChars += (part.thinking ?? "").length;
+			}
 		}
 	}
-	if (calls === 0) return undefined;
+
 	if (calls > 0) parts.push(paint(theme, "fact", `${calls} call${calls === 1 ? "" : "s"}`));
-	if (first !== Number.POSITIVE_INFINITY && last > first && last - first >= DURATION_AFTER_MS)
-		parts.push(paint(theme, "fact", durationLabel(last - first)));
+	const span =
+		first !== Number.POSITIVE_INFINITY && last > first && last - first >= DURATION_AFTER_MS
+			? durationLabel(last - first)
+			: undefined;
+	// Calls are timed by their own stamps; only a turn without them falls back
+	// to the prompt's stopwatch.
+	const took = span ?? (elapsed !== undefined && elapsed >= DURATION_AFTER_MS ? durationLabel(elapsed) : undefined);
+	if (took) parts.push(paint(theme, "fact", took));
+	if (thoughtChars > 0) parts.push(paint(theme, "fact", `~${tokenCount(thoughtChars)} thought`));
 	if (failures > 0) parts.push(paint(theme, "fail", `${failures} failed`));
-	return { lines: [fit(`${pad}${elbow} ${parts.join(sep)}`, width)], source: NOWHERE };
+	// One hint per turn, and only while the calls are still compact. Ctrl+O
+	// expands every call; clicking a row opens just that one.
+	if (calls > 0 && !expanded) {
+		const key = keyText("app.tools.expand");
+		if (key) parts.push(noteText(theme, `${key} expand`));
+	}
+	if (parts.length === 0) return undefined;
+	return { lines: [fit(`${pad}${mark} ${parts.join(sep)}`, width)], source: NOWHERE };
 }
 
 /**
@@ -503,10 +594,48 @@ function sigmaFooter(blocks: Block[], theme: ThemeLike, width: number): Fragment
  * durations, failures — goes on the turn's Σ footer. Calls from consecutive
  * assistant messages group too, as long as nothing visible sits between them.
  */
+/**
+ * A row's click target. pi routes a click to the component the turn renderer
+ * recorded for those lines; a compact row's own child regions never rendered,
+ * so the component itself would drop the click. This proxy toggles that row's
+ * expanded state instead — the per-call version of Ctrl+O.
+ */
+const CLICK_TARGETS = new WeakMap<object, unknown>();
+
+function clickTarget(row: ToolRow): unknown {
+	const cached = CLICK_TARGETS.get(row as object);
+	if (cached) return cached;
+	const target = {
+		render: () => [],
+		handleMouse: (event: { type?: string; button?: string }) => {
+			// A pointer over the row lights its margin marker; the transcript
+			// container clears it when the pointer moves off the rows.
+			if (event?.type === "move") {
+				if (setHovered(row as object)) state.renderer?.requestRender?.();
+				return { handled: true };
+			}
+			if (event?.type !== "click" || event.button !== "left") return undefined;
+			setHovered(row as object);
+			const r = row as { expanded?: boolean };
+			r.expanded = !r.expanded;
+			state.renderer?.requestRender?.();
+			return { handled: true };
+		},
+	};
+	CLICK_TARGETS.set(row as object, target);
+	return target;
+}
+
 export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Fragment[] {
 	const render = (r: ToolRow, w: number) => (r as unknown as { render(x: number): string[] }).render(w);
 
 	const pad = inset();
+
+	/** The row's inset, with the hover marker in its first column. */
+	const leadPad = (r: ToolRow): string =>
+		isHovered(r as object) && !r.expanded && pad.length > 0
+			? `${paint(theme, "verb", glyph.shut)}${pad.slice(1)}`
+			: pad;
 
 	/** One call as a bulleted row; continuation lines align under the text. */
 	const bulleted = (r: ToolRow): string[] => {
@@ -516,8 +645,9 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 		if (r.expanded) return render(r, Math.max(8, width - pad.length)).map((l) => (l ? pad + l : l));
 		const lines = render(r, Math.max(8, width - pad.length - 2));
 		const lead = LEAD_LINES.get(r) ?? 0;
+		const callPad = leadPad(r);
 		return lines.map((l, idx) =>
-			idx < lead ? `${pad}${l}` : idx === lead ? `${pad}${bullet(r, theme)} ${l}` : `${pad}  ${l}`,
+			idx === lead ? `${callPad}${bullet(r, theme)} ${l}` : `${pad}${idx < lead ? "" : "  "}${l}`,
 		);
 	};
 
@@ -531,13 +661,12 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 		}
 	});
 	if (shown.length < 2) {
-		return run.map((row) => ({ lines: bulleted(row), source: row }));
+		return run.map((row) => ({ lines: bulleted(row), source: clickTarget(row) }));
 	}
 
 	// Rows first: drawing a row is what stamps its end time, which the
 	// header's total needs on the very frame the group finishes. Each row's
-	// lines keep that row as their click target, so a click still opens one
-	// call inside the turn.
+	// lines keep a click target that opens that one call inside the turn.
 	const body: Fragment[] = [];
 	const branch = (s: string) => paint(theme, "rule", s);
 	// Every row draws through its own render(); GROUPED tells each it is hanging
@@ -553,7 +682,7 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 			const framed = render(child, Math.max(8, width - pad.length - 3)).map(
 				(line, li) => pad + (li === 0 ? fork : trunk) + line,
 			);
-			if (framed.length > 0) body.push({ lines: framed, source: child });
+			if (framed.length > 0) body.push({ lines: framed, source: clickTarget(child) });
 			return;
 		}
 		const lines = render(child, Math.max(8, width - pad.length - 5));
@@ -566,9 +695,10 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 					: li === callLine
 						? `${fork}${bullet(child, theme)} `
 						: `${trunk}  `;
-			return pad + lead + line;
+			const prefix = li === callLine ? leadPad(child) : pad;
+			return prefix + lead + line;
 		});
-		if (drawn.length > 0) body.push({ lines: drawn, source: child });
+		if (drawn.length > 0) body.push({ lines: drawn, source: clickTarget(child) });
 	});
 
 	// No header: the tree is the summary. The turn footer (Σ) carries what the

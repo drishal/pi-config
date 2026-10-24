@@ -41,10 +41,25 @@ export const state: {
 	theme?: ThemeLike;
 	/**
 	 * pi's screen, taken from the first tool row it renders. Renderers repaint
-	 * on request only, so a pulse, a running timer or a click has to ask.
+	 * on request only, so a running timer or a click has to ask.
 	 */
 	renderer?: { requestRender?(): void };
 } = {};
+
+/**
+ * The one row the pointer is over. A single value, because a pointer is over
+ * one row at a time; row.ts reads it to light the row's marker.
+ */
+let hoveredRow: object | undefined;
+
+/** Mark a row as hovered; returns true when the hovered row changed. */
+export function setHovered(row: object | undefined): boolean {
+	if (hoveredRow === row) return false;
+	hoveredRow = row;
+	return true;
+}
+
+export const isHovered = (row: object): boolean => hoveredRow === row;
 
 export const off = (name: string) => process.env[name] === "0";
 
@@ -84,6 +99,14 @@ export const role = {
 	thought: "thinkingText",
 	/** The turn footer: model, time, cost. */
 	meta: "dim",
+	/** A neutral marker: a finished call's bullet, a quiet glyph. */
+	mark: "dim",
+	/** A frame's section label, e.g. Output inside an expanded call. */
+	frame: "toolTitle",
+	/** Diff rows under an edit. */
+	diffAdded: "toolDiffAdded",
+	diffRemoved: "toolDiffRemoved",
+	diffContext: "toolDiffContext",
 } as const;
 
 /** One-column glyphs, so a glyph never shifts a row. */
@@ -94,6 +117,9 @@ export const glyph = {
 	shut: "▸",
 	bar: "│",
 	cut: "…",
+	thought: "◇",
+	/** The filled half of the thinking blink. */
+	thoughtFilled: "◆",
 } as const;
 
 export function paint(t: ThemeLike, slot: keyof typeof role, text: string): string {
@@ -106,6 +132,7 @@ export const factText = (t: ThemeLike, text: string) => paint(t, "fact", text);
 export const liveText = (t: ThemeLike, text: string) => paint(t, "live", text);
 export const failText = (t: ThemeLike, text: string) => paint(t, "fail", text);
 export const noteText = (t: ThemeLike, text: string) => paint(t, "note", text);
+export const markText = (t: ThemeLike, text: string) => paint(t, "mark", text);
 
 /** A horizontal rule of exactly `width` columns. */
 export const ruleText = (t: ThemeLike, width: number) =>
@@ -135,16 +162,19 @@ export function num(v: unknown): number | undefined {
 
 /** Collapse a path to something readable without losing the tail. */
 export function shortPath(p: string, cwd = process.cwd()): string {
-	let out = p.startsWith(cwd) ? p.slice(cwd.length).replace(/^\/+/, "") : p;
+	// A path boundary, not a bare prefix: `/repo2` is not inside `/repo`.
+	const inside = (path: string, root: string) =>
+		path === root || path.startsWith(root.endsWith("/") ? root : `${root}/`);
+	let out = inside(p, cwd) ? p.slice(cwd.length).replace(/^\/+/, "") : p;
 	const home = process.env.HOME;
-	if (home && out.startsWith(home)) out = `~${out.slice(home.length)}`;
+	if (home && inside(out, home)) out = `~${out.slice(home.length)}`;
 	const segs = out.split("/");
 	return segs.length > 4 ? `…/${segs.slice(-3).join("/")}` : out;
 }
 
 export function oneLine(s: string, max: number): string {
 	const flat = s.replace(/\s+/g, " ").trim();
-	return flat.length > max ? `${flat.slice(0, max - 1)}${glyph.cut}` : flat;
+	return visibleWidth(flat) > max ? truncateToWidth(flat, max, glyph.cut) : flat;
 }
 
 /**

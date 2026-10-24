@@ -18,9 +18,12 @@ import {
 	failText,
 	fit,
 	glyph,
+	isHovered,
 	liveText,
 	noteText,
 	oneLine,
+	paint as paintRole,
+	role,
 	sameKey,
 	state,
 	str,
@@ -35,7 +38,6 @@ import {
 	TIMER_AFTER_MS,
 	durationLabel,
 	elapsedLabel,
-	pulseOn,
 	watch,
 	tookMs,
 } from "./clock.ts";
@@ -242,11 +244,8 @@ function rowLinesUncached(row: ToolRow, theme: ThemeLike, width: number, opts: R
 	// Diff rows sit under the stat line, indented past the `└ ` and coloured
 	// by their marker so an edit reads as a diff rather than a paragraph.
 	for (const line of extra ?? []) {
-		const slot = theme.fg(
-			line.startsWith("+") ? "toolDiffAdded" : line.startsWith("-") ? "toolDiffRemoved" : "dim",
-			line,
-		);
-		noteLine.push(fit(`  ${slot}`, width));
+		const slot = line.startsWith("+") ? "diffAdded" : line.startsWith("-") ? "diffRemoved" : "diffContext";
+		noteLine.push(fit(`  ${paintRole(theme, slot, line)}`, width));
 	}
 	return noteLine;
 }
@@ -286,14 +285,13 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 /* ── the bullet ────────────────────────────────────────────────────────── */
 
 /**
- * A call's bullet: dim when done, red on failure, pulsing while live. Success
+ * A call's bullet: dim when done, red on failure, live while running. Success
  * is the default and needs no colour of its own.
  */
 export function bullet(row: ToolRow, theme: ThemeLike): string {
-	if (row.isPartial) {
-		return theme.fg(pulseOn() ? "warning" : "dim", glyph.bullet);
-	}
-	return theme.fg(row.result?.isError ? "error" : "dim", glyph.bullet);
+	if (row.isPartial) return paintRole(theme, "live", glyph.bullet);
+	if (row.result?.isError) return paintRole(theme, "fail", glyph.bullet);
+	return paintRole(theme, isHovered(row as object) ? "verb" : "mark", glyph.bullet);
 }
 
 /* ── expanded rows: framed, omp-style ──────────────────────────────────── */
@@ -418,22 +416,22 @@ export function framedLines(comp: unknown, row: ToolRow, theme: ThemeLike, width
 	}
 
 	const borderSlot = row.isPartial ? "live" : row.result?.isError ? "fail" : "rule";
-	const g = (s: string) => (borderSlot === "rule" ? theme.fg("dim", s) : theme.fg(borderSlot === "live" ? "warning" : "error", s));
+	const g = (s: string) => paintRole(theme, borderSlot, s);
 	const boxed = (line: string) => {
 		const t = visibleWidth(line) > inner ? truncateToWidth(line, inner) : line;
 		return `${g(glyph.bar)} ${t}${" ".repeat(Math.max(0, inner - visibleWidth(t)))} ${g(glyph.bar)}`;
 	};
 	/** A border with a label set into it after a 3-dash cap, as omp draws it:
 	 *  `├─── Output ───┤`. Fill = width - (corner + cap) - label - corner. */
-	const labelled = (left: string, label: string, right: string, color: string) => {
+	const labelled = (left: string, label: string, right: string, slot: keyof typeof role) => {
 		const l = truncateToWidth(` ${label} `, Math.max(0, width - 5));
-		return g(`${left}───`) + theme.fg(color, l) + g("─".repeat(Math.max(0, width - 5 - visibleWidth(l)))) + g(right);
+		return g(`${left}───`) + paintRole(theme, slot, l) + g("─".repeat(Math.max(0, width - 5 - visibleWidth(l)))) + g(right);
 	};
 
 	const out = ["", g(`╭${"─".repeat(width - 2)}╮`)];
 	out.push(...call.map(boxed));
 	if (output.length > 0) {
-		if (call.length > 0) out.push(labelled("├", "Output", "┤", "toolTitle"));
+		if (call.length > 0) out.push(labelled("├", "Output", "┤", "frame"));
 		out.push(...output.map(boxed));
 	}
 	const { facts } = summarize(row);
@@ -443,7 +441,7 @@ export function framedLines(comp: unknown, row: ToolRow, theme: ThemeLike, width
 			? ["running…", elapsedLabel(start)]
 			: ["running…"]
 		: facts;
-	out.push(status.length > 0 ? labelled("╰", status.join(" · "), "╯", borderSlot === "rule" ? "dim" : "error") : g(`╰${"─".repeat(width - 2)}╯`));
+	out.push(status.length > 0 ? labelled("╰", status.join(" · "), "╯", borderSlot === "rule" ? "fact" : "fail") : g(`╰${"─".repeat(width - 2)}╯`));
 
 	// Images keep pi's own layout, below the frame.
 	const images = c.imageComponents ?? [];
@@ -470,6 +468,10 @@ export function installRows(): Patchable | undefined {
 	proto.render = function (width: number): string[] {
 		const theme = state.theme;
 		const row = this as unknown as ToolRow;
+		// pi's screen is the only handle that can ask for a frame when a timer,
+		// a click or the clock ticks; it lives on the component.
+		const ui = (this as unknown as { ui?: { requestRender?(): void } }).ui;
+		if (ui && state.renderer !== ui) state.renderer = ui;
 		if (!theme) return original.call(this, width);
 		if (row.expanded) {
 			try {
