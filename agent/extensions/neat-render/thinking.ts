@@ -34,7 +34,7 @@ export const THINK_PATCH = Symbol.for("dr.pi.neatRender.thinking.v1");
 
 
 
-export type ContentBlock = { type?: string; thinking?: string };
+export type ContentBlock = { type?: string; text?: string; thinking?: string };
 export type ThinkingRun = { text: string; done: boolean };
 export type AssistantInternals = {
 	contentContainer?: { children?: unknown[] };
@@ -198,6 +198,32 @@ export function decorateThinking(host: AssistantInternals, message: { content?: 
 	}
 }
 
+type MessageWithContent = { content?: ContentBlock[] };
+
+/** A text block opening with zero-width characters is the placeholder some routes stream first. */
+const PLACEHOLDER_TEXT = /^[\u200B-\u200D\u2060\uFEFF]+/;
+
+/**
+ * opencode-go/deepseek streams a zero-width text delta before its reasoning, so
+ * pi-ai opens the text block first and stores [text, thinking]. pi renders that
+ * order as-is; draw the reasoning above the placeholder so the turn reads in
+ * the order it happened. Only that placeholder shape is touched — an ordinary
+ * text-before-thinking message stays in pi's order.
+ */
+function withPlaceholderThinkingFirst<T>(message: T): T {
+	if (!message || typeof message !== "object") return message;
+	const content = (message as MessageWithContent).content;
+	if (!Array.isArray(content)) return message;
+	const first = content.find((block) => block.type === "text" || block.type === "thinking");
+	if (!first || first.type !== "text" || !first.text || !PLACEHOLDER_TEXT.test(first.text)) return message;
+	const isThought = (block: ContentBlock) => block.type === "thinking" && (block.thinking ?? "").trim() !== "";
+	if (!content.some((block, index) => index > 0 && isThought(block))) return message;
+	return {
+		...(message as object),
+		content: [...content.filter(isThought), ...content.filter((block) => !isThought(block))],
+	} as T;
+}
+
 type UpdateFn = (this: unknown, message: unknown, isStreaming?: boolean) => void;
 type ThinkingPatchable = { updateContent: UpdateFn; [key: symbol]: unknown };
 
@@ -206,9 +232,10 @@ export function installThinking(): ThinkingPatchable | undefined {
 	if (!proto || typeof proto.updateContent !== "function" || proto[THINK_PATCH]) return undefined;
 	const original = proto.updateContent;
 	proto.updateContent = function (message: unknown, isStreaming?: boolean) {
-		original.call(this, message, isStreaming);
+		const rendered = withPlaceholderThinkingFirst(message);
+		original.call(this, rendered, isStreaming);
 		try {
-			decorateThinking(this as AssistantInternals, message as { content?: ContentBlock[] });
+			decorateThinking(this as AssistantInternals, rendered as MessageWithContent);
 		} catch {
 			/* keep pi's own rendering */
 		}
