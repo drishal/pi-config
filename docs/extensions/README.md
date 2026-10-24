@@ -18,7 +18,6 @@ Packages are listed in [SETUP.md](../../SETUP.md) step 6.
 | [`sudo-session.ts`](#sudo-sessionts) | `/sudo` for the bash tool |
 | [`tmux-stream.ts`](#tmux-streamts) | live view of `pi -p` runs in tmux |
 | [`read-guard/`](#read-guard) | trims a `read` only when it would overflow the context |
-| [`compaction-continue/`](#compaction-continue) | nudges pi when a turn stalls |
 | [`strip-append-system.ts`](#strip-append-systemts) | keeps package-written guides out of the system prompt |
 | [`prompt-diet/`](#prompt-diet) | crisper wording for package tool prompts, pinned by hash |
 | [`base16-theme.ts`](#base16-themets) | base16/base24 YAML schemes as pi themes |
@@ -163,13 +162,6 @@ keeping it whole would push the context past the window: the model gets the
 first 30 lines plus a directive to use grep or a narrower range. Replaced
 `pi-mono-context-guard`, which capped every read at 120 lines regardless.
 
-## compaction-continue/
-
-`@badliveware/pi-compaction-continue`, vendored (upstream unmaintained since
-2026-05). When pi goes idle after a compaction, or a turn ends saying it will
-continue, it sends a watchdog nudge; the agent answers through
-`watchdog_answer` instead of prose. The compaction half was fixed upstream in pi
-0.84.4; the stalled-turn half is still useful.
 
 ## strip-append-system.ts
 

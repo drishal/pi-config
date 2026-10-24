@@ -2,7 +2,7 @@
  * statusline — a two-line footer in the spirit of pi-zentui's starship style,
  * with the workspace half drawn by the real starship binary.
  *
- *   deepseek-v4.1-flash · Opencode Go · max · my-session      watchdog:on · MCP …
+ *   deepseek-v4.1-flash · Opencode Go · max · my-session      MCP …
  *   .pi on  main [!]                    26k/1.0M · ↑26k ↓27 · cache 92% · $0.004
  *
  * Line 1: model · provider · thinking level (· session name), and the other

@@ -419,7 +419,7 @@ What they are:
 The footer is this repo's own two-line status line, not a package:
 
 ```
-deepseek-v4.1-flash · OpenCode Go · max · my-session          watchdog:on · LSP …
+deepseek-v4.1-flash · OpenCode Go · max · my-session          LSP …
 .pi on  main [!?] via ❄ impure            22k/1.0M · ↑44k ↓98 · cache 50% · $0.003 · 22 tok/s
 ```
 
@@ -488,7 +488,6 @@ machine only would be listed by name in `.gitignore` instead):
 |---|---|
 | `neat-render.ts` | Claude-Code-shaped tool rows: two-line call/outcome, wrapped `└ $` for running commands, inline edit diffs, pulsing bullet. Ctrl+O shows each call in an omp-style frame (command — bash syntax-highlighted — then an `Output` divider, status in the bottom border) instead of pi's tinted box. A bash command's leading `# comment` lines show as a dim `# …` line above the call, so the row itself shows the actual command. Env knobs in its header. |
 | `read-guard/` | Trims a `read` only when it would overflow the context window, returning the first 30 lines plus a use-grep-instead directive. From little-coder. Replaced `pi-mono-context-guard`, which capped every read at 120 lines regardless of pressure. |
-| `compaction-continue/` | Watchdog that nudges pi to resume when a turn stalls. Upstream is unmaintained since 2026-05; the compaction half it was written for was fixed in pi 0.84.4, the stalled-turn half is still live. |
 | `sudo-session.ts` | `/sudo` elevation for the bash tool. |
 | `microcall.ts` | One-shot side calls for other extensions (`globalThis[Symbol.for("pi.microcall")]`), each run as a fresh isolated in-process pi session: no extensions, skills, AGENTS.md or tools, in-memory, thinking off. Because it is a real pi session, requests carry pi's own provider headers — so it works on providers that reject raw SDK calls (OpenCode Go). Model chain: `model-state.json` `"micro"` (`model` + `fallbacks`), else the caller's default, else the session model. `/microcall` shows the chain and recent calls; `/microcall test` round-trips. |
 | `eval/` | `eval` tool: Python (`runner.py`, plain CPython — `python3` on PATH or `EVAL_PYTHON`) and JavaScript (`kernel.cjs`, Node REPL semantics) in persistent per-session kernels. Last-expression value, top-level await, `!cmd`/`%pip` in Python; Ctrl+C/timeout interrupts a cell, and a kernel that will not stop is restarted. Modelled on omp's `eval`. |
