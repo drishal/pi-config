@@ -34,7 +34,7 @@ export const THINK_PATCH = Symbol.for("dr.pi.neatRender.thinking.v1");
 
 
 
-export type ContentBlock = { type?: string; thinking?: string };
+export type ContentBlock = { type?: string; text?: string; thinking?: string };
 export type ThinkingRun = { text: string; done: boolean };
 export type AssistantInternals = {
 	contentContainer?: { children?: unknown[] };
@@ -72,13 +72,6 @@ export function thinkingRuns(content: ContentBlock[]): ThinkingRun[] {
  * that clears the ThinkingView which measured it.
  */
 const TIMES = new WeakMap<object, Map<number, { start: number; end?: number }>>();
-
-/**
- * Per-host thinking totals (chars and runs), for the turn's `Σ` footer. Filled
- * in by decorateThinking on every update, so the values survive the rebuild
- * that clears the views.
- */
-export const THINKING_TOTALS = new WeakMap<object, { chars: number; runs: number }>();
 
 function timeFor(host: object, index: number): { start: number; end?: number } {
 	let times = TIMES.get(host);
@@ -184,10 +177,6 @@ export function decorateThinking(host: AssistantInternals, message: { content?: 
 	const kids = host.contentContainer?.children;
 	if (!Array.isArray(kids) || !Array.isArray(message?.content)) return;
 	const runs = thinkingRuns(message.content);
-	THINKING_TOTALS.set(host as object, {
-		chars: runs.reduce((n, r) => n + r.text.length, 0),
-		runs: runs.length,
-	});
 	let index = 0;
 	for (const kid of kids) {
 		// Only thinking runs are wrapped in a MouseRegion, one per run, in order.
@@ -209,6 +198,29 @@ export function decorateThinking(host: AssistantInternals, message: { content?: 
 	}
 }
 
+type MessageWithContent = { content?: ContentBlock[] };
+
+/**
+ * Some OpenAI-compatible routes (opencode-go's deepseek, for one) deliver the
+ * reasoning after the answer text. The session keeps that order, and pi draws
+ * blocks in content order, so the reasoning ends up hanging below its own
+ * reply. Move a trailing group of thinking blocks in front of the text for
+ * display only — interleaved reasoning keeps its order.
+ */
+function withThinkingFirst<T>(message: T): T {
+	if (!message || typeof message !== "object") return message;
+	const content = (message as MessageWithContent).content;
+	if (!Array.isArray(content)) return message;
+	const isThought = (block: ContentBlock) => block.type === "thinking" && (block.thinking ?? "").trim() !== "";
+	const lastText = content.reduce((last, block, index) => (block.type === "text" && (block.text ?? "").trim() ? index : last), -1);
+	const firstThought = content.findIndex(isThought);
+	if (lastText < 0 || firstThought <= lastText) return message;
+	return {
+		...(message as object),
+		content: [...content.filter(isThought), ...content.filter((block) => !isThought(block))],
+	} as T;
+}
+
 type UpdateFn = (this: unknown, message: unknown, isStreaming?: boolean) => void;
 type ThinkingPatchable = { updateContent: UpdateFn; [key: symbol]: unknown };
 
@@ -217,9 +229,10 @@ export function installThinking(): ThinkingPatchable | undefined {
 	if (!proto || typeof proto.updateContent !== "function" || proto[THINK_PATCH]) return undefined;
 	const original = proto.updateContent;
 	proto.updateContent = function (message: unknown, isStreaming?: boolean) {
-		original.call(this, message, isStreaming);
+		const rendered = withThinkingFirst(message);
+		original.call(this, rendered, isStreaming);
 		try {
-			decorateThinking(this as AssistantInternals, message as { content?: ContentBlock[] });
+			decorateThinking(this as AssistantInternals, rendered as MessageWithContent);
 		} catch {
 			/* keep pi's own rendering */
 		}

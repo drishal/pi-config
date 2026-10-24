@@ -21,6 +21,7 @@ import {
 	liveText,
 	noteText,
 	oneLine,
+	sameKey,
 	state,
 	str,
 	subjectText,
@@ -143,10 +144,13 @@ export type RowOpts = {
  * instead — the tree connectors already give the rows their structure, and a
  * `└` outcome would collide with the tree's own `└`.
  */
-export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: RowOpts = {}): string[] {
+function rowLinesUncached(row: ToolRow, theme: ThemeLike, width: number, opts: RowOpts = {}): string[] {
 	const { start, took, tree, align } = opts;
 	const summary = summarize(row);
-	const { subject, facts, body: extra, hidden, note, lang } = summary;
+	const { subject, body: extra, hidden, note, lang } = summary;
+	// Summaries are memoized, so their facts array is shared: copy it before
+	// appending the measured duration, or a redraw would stack another one.
+	const facts = [...summary.facts];
 	if (hidden) return [];
 
 	const live = (text: string) => liveText(theme, text);
@@ -247,6 +251,38 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 	return noteLine;
 }
 
+/* ── memo ──────────────────────────────────────────────────────────────── */
+
+/**
+ * Rendered rows are memoized. pi repaints the whole transcript for every
+ * frame, and a large session holds hundreds of finished calls whose row costs
+ * a summary plus several width scans to draw; recomputing them on every
+ * keystroke and streaming token is what made the transcript lag. A running row
+ * is never cached — its timer changes every tick.
+ */
+type RowCacheEntry = { key: readonly unknown[]; lines: string[] };
+const ROW_CACHE = new WeakMap<object, RowCacheEntry>();
+
+export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: RowOpts = {}): string[] {
+	if (row.isPartial) return rowLinesUncached(row, theme, width, opts);
+	const key = [
+		theme,
+		width,
+		opts.tree === true,
+		opts.align,
+		opts.took,
+		row.expanded === true,
+		row.toolName,
+		row.args,
+		row.result,
+	] as const;
+	const hit = ROW_CACHE.get(row as object);
+	if (hit && sameKey(hit.key, key)) return hit.lines;
+	const lines = rowLinesUncached(row, theme, width, opts);
+	ROW_CACHE.set(row as object, { key, lines });
+	return lines;
+}
+
 /* ── the bullet ────────────────────────────────────────────────────────── */
 
 /**
@@ -274,7 +310,10 @@ export type ToolInternals = {
 };
 
 const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
-export const isBlank = (line: string) => line.replace(ANSI_RE, "").trim() === "";
+/** Zero-width characters some models emit as a placeholder text block. */
+const ZERO_WIDTH_RE = /[\u200B-\u200D\u2060\uFEFF]/g;
+export const isBlank = (line: string) =>
+	line.replace(ANSI_RE, "").replace(ZERO_WIDTH_RE, "").trim() === "";
 
 /** Drop the blank padding lines renderers put above and below their text. */
 export function trimBlank(lines: string[]): string[] {
@@ -419,11 +458,14 @@ export function framedLines(comp: unknown, row: ToolRow, theme: ThemeLike, width
 /* ── patch: compact tool rows ──────────────────────────────────────────── */
 
 export const ROW_PATCH = Symbol.for("dr.pi.neatRender.row.v1");
+/** The invalidate wrapper, which clears the memo when pi repaints from scratch. */
+export const ROW_INVALIDATE_PATCH = Symbol.for("dr.pi.neatRender.row.invalidate.v1");
 
 export function installRows(): Patchable | undefined {
 	const proto = ToolExecutionComponent?.prototype as unknown as Patchable | undefined;
 	if (!proto || typeof proto.render !== "function" || proto[ROW_PATCH]) return undefined;
 	const original = proto.render;
+	const originalInvalidate = proto.invalidate;
 
 	proto.render = function (width: number): string[] {
 		const theme = state.theme;
@@ -460,7 +502,27 @@ export function installRows(): Patchable | undefined {
 			return original.call(this, width);
 		}
 	} as RenderFn;
+	// A full repaint (theme switch, grammar load) clears every component's own
+	// cache; the memo has to drop with them or old colours would stick.
+	if (typeof originalInvalidate === "function") {
+		proto.invalidate = function (): void {
+			ROW_CACHE.delete(this as object);
+			HL_CACHE.delete(this as unknown as ToolRow);
+			originalInvalidate.call(this);
+		};
+		proto[ROW_INVALIDATE_PATCH] = originalInvalidate;
+	}
 
 	proto[ROW_PATCH] = original;
 	return proto;
+}
+
+export function uninstallRows(proto: Patchable | undefined): void {
+	if (!proto) return;
+	const original = proto[ROW_PATCH];
+	if (typeof original === "function") proto.render = original as RenderFn;
+	delete proto[ROW_PATCH];
+	const originalInvalidate = proto[ROW_INVALIDATE_PATCH];
+	if (typeof originalInvalidate === "function") proto.invalidate = originalInvalidate as () => void;
+	delete proto[ROW_INVALIDATE_PATCH];
 }

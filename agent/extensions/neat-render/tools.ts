@@ -8,10 +8,39 @@
  * tool-specific argument shapes; the row renderer just lays the words out.
  */
 
-import { type ToolRow, countLines, num, plural, shortPath, str } from "./style.ts";
+import { type ToolRow, countLines, num, plural, sameKey, shortPath, str } from "./style.ts";
 
 /** What a call did, at the coarsest useful level. Feeds the turn summary. */
 export type Category = "read" | "run" | "search" | "fetch" | "edit" | "other";
+
+/** Minimal snapshot of a background task, as returned by `bg_task` results. */
+type BackgroundTaskStatus = "running" | "completed" | "failed" | "stopped" | "timed_out";
+type BackgroundTaskSnapshot = {
+	id: string;
+	title: string;
+	command: string;
+	cwd: string;
+	pid: number;
+	logFile: string;
+	status: BackgroundTaskStatus;
+	exitCode: number | null;
+	terminationReason?: string;
+};
+
+function bgTaskDisplayName(task: BackgroundTaskSnapshot): string {
+	return (task.title || task.command).replace(/\s+/g, " ").trim();
+}
+
+function bgTaskStatusFact(task: BackgroundTaskSnapshot): string {
+	const base = task.status;
+	if (base === "running") return base;
+	const code = task.exitCode ?? "?";
+	let text = `${base} (exit ${code})`;
+	if (task.terminationReason && task.terminationReason !== "self-exit") {
+		text += ` · ${task.terminationReason}`;
+	}
+	return text;
+}
 
 /** A tool row reduced to verb + subject + trailing facts. */
 export type Summary = {
@@ -193,6 +222,31 @@ for (const name of ["anchor_grep", "ast_grep_search", "symbol_search", "find", "
  * The registry: one entry per tool family. An entry only says what makes the
  * row readable — a missing `subject` or `facts` just leaves that part blank.
  */
+const BG_TASK_SPEC: Spec = {
+	category: "run",
+	verb: "Bg",
+	subject: (c) => {
+		const task = c.details?.task as BackgroundTaskSnapshot | undefined;
+		if (task) return `${task.id} · ${bgTaskDisplayName(task)}`;
+		const target = str(c.args.id) ?? str(c.args.pid);
+		return target ? `bg-${target}` : "tasks";
+	},
+	facts: (c) => {
+		const a = str(c.args.action) ?? "status";
+		if (a === "clear") return [`removed ${num(c.details.removed) ?? 0}`];
+		if (a === "list") return [];
+		const task = c.details?.task as BackgroundTaskSnapshot | undefined;
+		if (!task) return [];
+		const facts = [bgTaskStatusFact(task)];
+		if (a === "log" && c.lines) facts.push(plural(c.lines, "line"));
+		return facts;
+	},
+	hidden: (c) => {
+		const a = str(c.args.action) ?? "status";
+		return a === "list" && !c.row.isPartial && !c.row.result?.isError;
+	},
+};
+
 const REGISTRY: Record<string, Spec> = {
 	...SEARCH,
 
@@ -294,8 +348,29 @@ const REGISTRY: Record<string, Spec> = {
 			return [...facts, ...lineFacts(c)];
 		},
 	},
-	web_fetch: { category: "fetch", verb: "Fetch" },
-	get_search_content: { category: "fetch", verb: "Fetch" },
+	web_fetch: {
+		category: "fetch",
+		verb: "Fetch",
+		subject: (c) => {
+			const url = withMore(c.args.url, c.args.urls);
+			return url ? shortUrl(url) : withMore(c.args.query, c.args.queries);
+		},
+		facts: lineFacts,
+	},
+	get_search_content: {
+		category: "fetch",
+		verb: "Fetch",
+		subject: (c) => {
+			const url = str(c.args.url);
+			if (url) return shortUrl(url);
+			const find = str(c.args.findText);
+			const id = str(c.args.responseId) ?? "content";
+			const at = num(c.args.urlIndex) ?? num(c.args.queryIndex);
+			const where = at !== undefined ? `${id} #${at}` : id;
+			return find ? `"${find}" in ${where}` : where;
+		},
+		facts: lineFacts,
+	},
 
 	codemode: {
 		category: "run",
@@ -309,6 +384,9 @@ const REGISTRY: Record<string, Spec> = {
 		},
 		facts: lineFacts,
 	},
+
+	bg_task: BG_TASK_SPEC,
+	bg_status: BG_TASK_SPEC,
 
 	write: {
 		category: "edit",
@@ -372,7 +450,7 @@ for (const name of [
 }
 
 /** Everything a row shows, from one row object. */
-export function summarize(row: ToolRow): Summary {
+function summarizeUncached(row: ToolRow): Summary {
 	const args = (row.args ?? {}) as Record<string, unknown>;
 	const text = resultText(row);
 	const ctx: Ctx = {
@@ -408,6 +486,25 @@ export function summarize(row: ToolRow): Summary {
 		hidden: spec.hidden?.(ctx) ?? false,
 		note: spec.note?.(ctx),
 	};
+}
+
+/**
+ * A summary depends on the row's name, args and result, all of which pi
+ * replaces rather than mutates. Every draw asks for it twice — once for the
+ * hidden filter, once for the row — so it is memoized on those identities.
+ * The session's tool results run to megabytes, and counting their lines is the
+ * expensive part.
+ */
+type SummaryCacheEntry = { key: readonly unknown[]; summary: Summary };
+const SUMMARY_CACHE = new WeakMap<object, SummaryCacheEntry>();
+
+export function summarize(row: ToolRow): Summary {
+	const key = [row.toolName, row.args, row.result, row.isPartial === true] as const;
+	const hit = SUMMARY_CACHE.get(row as object);
+	if (hit && sameKey(hit.key, key)) return hit.summary;
+	const summary = summarizeUncached(row);
+	SUMMARY_CACHE.set(row as object, { key, summary });
+	return summary;
 }
 
 export function resultText(row: ToolRow): string {

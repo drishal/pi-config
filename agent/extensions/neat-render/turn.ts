@@ -32,6 +32,7 @@ import {
 	inset,
 	noteText,
 	paint,
+	sameKey,
 	state,
 } from "./style.ts";
 import { summarize } from "./tools.ts";
@@ -41,7 +42,6 @@ import {
 	RUN_STARTS,
 	durationLabel,
 } from "./clock.ts";
-import { THINKING_TOTALS, tokenCount } from "./thinking.ts";
 import { GROUPED, LEAD_LINES, bullet, isBlank, trimBlank } from "./row.ts";
 
 /* ── the prompt: a `❯` quote over a full-width fill strip ──────────────── */
@@ -50,6 +50,7 @@ const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 const OSC133_ZONE_RE = /\x1b\]133;[ABC]\x07/g;
+const stripZones = (line: string) => line.replace(OSC133_ZONE_RE, "");
 
 export const CARD_PATCH = Symbol.for("dr.pi.neatRender.card.v1");
 
@@ -152,11 +153,12 @@ function blocksOf(parts: unknown[], width: number, keepThinking: boolean): Block
 		if (kid instanceof AssistantMessageComponent) {
 			const host = kid as unknown as AssistantInternals;
 			const content = host.lastMessage?.content ?? [];
-			const hasText = content.some((c) => c.type === "text" && c.text?.trim());
+			// A zero-width-only text block is a model placeholder, not an answer.
+			const hasText = content.some((c) => c.type === "text" && !isBlank(c.text ?? ""));
 			const hasCalls = content.some((c) => c.type === "toolCall");
 			// A message that is only reasoning renders no text of its own — but
 			// while the turn is live it carries the rolling thought line.
-			const hasThinking = content.some((c) => c.type === "thinking" && c.thinking?.trim());
+			const hasThinking = content.some((c) => c.type === "thinking" && !isBlank(c.thinking ?? ""));
 			if (!hasText && !(keepThinking && hasThinking)) continue;
 			closeActivity();
 			blocks.push({ kind: "assistant", comp: host, answer: hasText && !hasCalls });
@@ -214,7 +216,7 @@ function thinkingPrefix(host: AssistantInternals, width: number): number {
 	return count;
 }
 
-function finishedMessage(
+function finishedMessageUncached(
 	host: AssistantInternals & Renderable,
 	theme: ThemeLike,
 	width: number,
@@ -238,17 +240,60 @@ function finishedMessage(
 	while (to > from && isBlank(rows[to - 1].text)) to--;
 	rows = rows.slice(from, to);
 
-	if (!bullet) return rows.map((row) => row.text);
-	const dot = paint(theme, "answer", glyph.bullet);
-	let marked = false;
-	return rows.map((row) => {
-		// Reasoning keeps its own shape; the bullet lands on the message's own
-		// first line, and everything from there indents under it.
-		if (isBlank(row.text) || row.thinking) return row.text;
-		if (marked) return `  ${row.text}`;
-		marked = true;
-		return `${dot} ${row.text}`;
-	});
+	let out: string[];
+	if (!bullet) out = rows.map((row) => row.text);
+	else {
+		const dot = paint(theme, "answer", glyph.bullet);
+		let marked = false;
+		out = rows.map((row) => {
+			// Reasoning keeps its own shape; the bullet lands on the message's own
+			// first line, and everything from there indents under it.
+			if (isBlank(row.text) || row.thinking) return row.text;
+			if (marked) return `  ${row.text}`;
+			marked = true;
+			return `${dot} ${row.text}`;
+		});
+	}
+	// pi brackets an assistant message in OSC 133 zones; the prompt carries the
+	// pair, so the body drops them. Stripped here, once, because this result is
+	// memoized — a turn-level scan would repeat it on every frame.
+	return out.map(stripZones);
+}
+
+/**
+ * Finished messages are memoized the same way their children cache their own
+ * lines. A repaint walks the whole transcript, and one finished message costs
+ * a double render of its children plus an ANSI scan of every reasoning line;
+ * with hundreds of messages that is a large share of a frame. pi rebuilds the
+ * content container (replacing its children array) whenever the message, its
+ * thinking visibility or the theme changes, so that array is the invalidation
+ * key.
+ */
+type MessageCacheEntry = { key: readonly unknown[]; lines: string[] };
+const MESSAGE_CACHE = new WeakMap<object, MessageCacheEntry>();
+
+function finishedMessage(
+	host: AssistantInternals & Renderable,
+	theme: ThemeLike,
+	width: number,
+	bullet: boolean,
+): string[] {
+	const hidden = host as unknown as { hideThinkingBlock?: boolean };
+	const key = [
+		theme,
+		width,
+		bullet,
+		host.hiddenThinkingLabel,
+		host.isStreaming === true,
+		hidden.hideThinkingBlock === true,
+		host.contentContainer?.children,
+		host.lastMessage,
+	] as const;
+	const hit = MESSAGE_CACHE.get(host as object);
+	if (hit && sameKey(hit.key, key)) return hit.lines;
+	const lines = finishedMessageUncached(host, theme, width, bullet);
+	MESSAGE_CACHE.set(host as object, { key, lines });
+	return lines;
 }
 
 /* ── patch: turns ──────────────────────────────────────────────────────── */
@@ -391,19 +436,22 @@ function renderTurn(prompt: Renderable, parts: unknown[], theme: ThemeLike, widt
 		if (f) push(f.lines, f.source);
 	}
 	// pi brackets an assistant message in OSC 133 zones for shell integration;
-	// the prompt already carries the pair, so the body drops them.
-	for (const fragment of out.slice(1)) fragment.lines = fragment.lines.map((line) => line.replace(OSC133_ZONE_RE, ""));
+	// the prompt already carries the pair, so the body drops them. Finished
+	// messages are stripped as they are memoized; only a live turn, which pi
+	// still renders directly, needs this scan.
+	if (live) {
+		for (const fragment of out.slice(1)) fragment.lines = fragment.lines.map(stripZones);
+	}
 	return out;
 }
 
 /**
- * The Σ footer: one line under the answer when the turn produced work worth
- * totalling — reasoning chars, tool calls, wall time.
+ * The Σ footer: one line under the answer when the turn made calls — calls,
+ * wall time and failures. The reasoning's own token count is already on its
+ * Thinking line, so it is not repeated here; a turn that only thought has
+ * nothing to total.
  *
- *   └ Σ ~140 tokens thought · 3 calls · 7.5s
- *
- * Failure and live state ride along. Nothing is drawn for a turn that did
- * nothing measurable.
+ *   └ Σ 3 calls · 7.5s
  */
 function sigmaFooter(blocks: Block[], theme: ThemeLike, width: number): Fragment | undefined {
 	const pad = inset();
@@ -411,7 +459,6 @@ function sigmaFooter(blocks: Block[], theme: ThemeLike, width: number): Fragment
 	const elbow = paint(theme, "rule", "└ Σ");
 	const parts: string[] = [];
 
-	let thoughtChars = 0;
 	let calls = 0;
 	let failures = 0;
 	let first = Number.POSITIVE_INFINITY;
@@ -427,13 +474,8 @@ function sigmaFooter(blocks: Block[], theme: ThemeLike, width: number): Fragment
 				if (e !== undefined && e > last) last = e;
 			}
 		}
-		if (block.kind === "assistant") {
-			const t = THINKING_TOTALS.get(block.comp as object);
-			if (t) thoughtChars += t.chars;
-		}
 	}
-	if (thoughtChars === 0 && calls === 0) return undefined;
-	if (thoughtChars > 0) parts.push(paint(theme, "fact", `~${tokenCount(thoughtChars)} tokens thought`));
+	if (calls === 0) return undefined;
 	if (calls > 0) parts.push(paint(theme, "fact", `${calls} call${calls === 1 ? "" : "s"}`));
 	if (first !== Number.POSITIVE_INFINITY && last > first && last - first >= DURATION_AFTER_MS)
 		parts.push(paint(theme, "fact", durationLabel(last - first)));

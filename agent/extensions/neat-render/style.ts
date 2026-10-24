@@ -30,7 +30,11 @@ export type ToolRow = {
 };
 
 export type RenderFn = (this: unknown, width: number) => string[];
-export type Patchable = { render: RenderFn; [key: symbol]: unknown };
+export type Patchable = {
+	render: RenderFn;
+	invalidate?: (this: unknown) => void;
+	[key: symbol]: unknown;
+};
 
 /** Shared across the patches; filled in on session_start. */
 export const state: {
@@ -141,4 +145,13 @@ export function shortPath(p: string, cwd = process.cwd()): string {
 export function oneLine(s: string, max: number): string {
 	const flat = s.replace(/\s+/g, " ").trim();
 	return flat.length > max ? `${flat.slice(0, max - 1)}${glyph.cut}` : flat;
+}
+
+/**
+ * Whether two memo keys still describe the same inputs. Keys hold object
+ * references (an args or result object, a theme, a children array) beside
+ * primitives, so identity is the right comparison.
+ */
+export function sameKey(a: readonly unknown[], b: readonly unknown[]): boolean {
+	return a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
 }
