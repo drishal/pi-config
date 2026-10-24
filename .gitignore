@@ -18,7 +18,6 @@
 !/agent/AGENTS.md
 !/agent/settings.shared.json
 !/agent/pi.env
-!/agent/subagents.json
 !/agent/model-state_example.json
 !/agent/pi-book_example.json
 !/agent/keybindings.json

@@ -8,11 +8,12 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | File | Holds | Tracked |
 |---|---|---|
 | `settings.shared.json` | hand-picked shared settings: packages, `defaultTools`, theme, compaction, `statusline` | yes |
-| `settings.json` | pi's live settings: the shared ones merged in, plus toggles, model picks and the per-machine `subagents` routing | **no** — per machine |
+| `settings.json` | pi's live settings: the shared ones merged in, plus toggles and model picks | **no** — per machine |
 | `pi.env` | shared non-secret env switches | yes |
 | `AGENTS.md` | the global system prompt: style, tool routing | yes |
 | `extensions/`, `themes/` (YAML + hand-written JSON) | local extensions, themes | yes |
-| `subagents.json` | per-extension config | yes |
+| `subagents-lite.json` | `pi-subagents-lite` global config: default model, concurrency | **no** — per machine |
+| `agents/` | `pi-subagents-lite` role definitions: model, thinking, tools, prompt per `.md` | **no** — per machine |
 | `keybindings.json` | editor key overrides: Ctrl+Backspace (and Ctrl+H, the raw byte foot/tmux send for it) delete a word | yes |
 | `model-state_example.json` | the shape of `model-state.json` | yes |
 | `model-state.json` | our extensions' model config: the `micro` chain | **no** — per machine |
@@ -27,47 +28,50 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | `book/` | pi-book's notes | **no** — private |
 | `sessions/`, `stream/`, `npm/`, caches | runtime state | **no** |
 
-## Subagent model routing (per machine)
+## Subagent routing (personal)
 
-`pi-subagents` reads its `subagents` block from pi's settings. It stays in the
-private `settings.json`, never in `settings.shared.json`: every value names a
-provider and model that exist on one machine, and those names bind the routing,
-so a shared copy either leaks a private gateway or fails closed on a fresh
-clone. The tracked `subagents.json` holds only the provider-neutral
-concurrency limits.
+`pi-subagents-lite` keeps its whole configuration out of this repo, because
+every value names a provider and model that exist on one machine:
 
-The reference machine (`nixos-desktop`, OpenCode Go) routes by role:
+- `~/.pi/agent/subagents-lite.json` — global default model and concurrency.
+- `~/.pi/agent/agents/<role>.md` — one file per role: model, thinking level,
+  tool allowlist, and the system prompt as frontmatter plus body.
 
-| Role | Model | Thinking | Why |
-|---|---|---|---|
-| `scout` | `glm-5.3-flash` | low | 1M context, vision, 18B active — fast recon at 1/10 the GLM-5.3 price |
-| `researcher` | `qwen3.8-flash` | — | 1M context, multimodal, independent family from the worker |
-| `evidence-auditor` | `deepseek-v4-pro` | — | SWE-bench Verified 96.4 — the cheapest strong verifier at $1.98/M out |
-| `worker` | `deepseek-v4.1-flash` | high | best agentic scores per dollar — the model the pool should mostly be spent on |
-| `reviewer` | `minimax-m3` | — | SWE-bench Verified 80.5 at $1.20/M out; `glm-5.3` is the escalation for a hard diff |
-| `oracle` | `xai/grok-4.7` | xhigh | AA Intelligence Index 46, a different vendor from every other role, and it spends the SuperGrok subscription rather than the pool; `kimi-k3` ($15/M out) and `glm-5.3` are the pool-side escalations |
-| `delegate` | `inherit` | — | the parent's model, by definition |
+A shared copy would either leak a private gateway or fail closed on a fresh
+clone. `pi-subagents-lite` replaces the older `pi-subagents`, whose routing
+lived in a `subagents` block in `settings.json` and a tracked `subagents.json`.
 
-Context is the other half of the cost. Only `oracle` (and its alias `advisor`)
-ships `defaultContext: fork`; the other six start fresh, so a child gets the
-system prompt, project context and the brief but not the conversation. Here
-oracle is pinned to `fresh`: a forked call re-sent the whole session (477
-messages, 290,612 tokens, $0.375 at list) where a brief sends 18,373 ($0.049).
-The caller must therefore put the decision, the constraints and the question in
-the task text — a bare question gets a context-free answer. The middle path,
-`forkContext: { mode: "pruned", model: … }`, keeps a fork capped at 64 KiB with
-overflow summarized, and is read from `~/.pi/agent/extensions/subagent/config.json`,
-not from settings: a `subagents.forkContext` key there is silently inert, unlike
-`subagents.agentOverrides.<name>.defaultContext`.
-`defaultModel` is `deepseek-v4.1-flash`, so an agent without an override still
-gets a cheap, strong model.
+Two roles cover the split that matters: cheap width for looking things up, an
+expensive second opinion for deciding. The parent session implements and does
+routine review itself — it already holds the conversation, the hashline anchors
+and the diff, and handing that to a child only re-sends context.
 
-`modelScope` is deliberately absent. The Claude Code adapters honour it, and a
-launch that pins no model then fails closed because the CLI's own default
-cannot be checked — with `claude` and `codex` on `PATH`, a scope would turn
-"use claude-code for a second opinion" into a launch error. A second allowance now
-exists (SuperGrok), but the same trap applies, so fence specific agents instead of
-setting a top-level allow.
+| Role | Model | Thinking | Tools | Job |
+|---|---|---|---|---|
+| `task` | `deepseek-v4.1-flash` | low | read, bash, find + web tools | read-only recon and research; returns the minimum context the parent needs |
+| `oracle` | `xai/grok-4.7` | high | read, bash, find + web tools | hard decisions, change review, verification of claims against the source |
+
+`task` is read-only on purpose: a recon spawn that can write is a bug waiting
+to happen. Both roles carry the web tools (~1.7k tokens per spawn) because
+verification sometimes needs evidence that is not in the repo: provider syntax,
+library behavior, a changelog that contradicts a comment. `oracle` sits on
+`xai/*`, so it spends the SuperGrok subscription rather than the OpenCode pool;
+`kimi-k3` ($15/M out) and `glm-5.3` are the pool-side escalations if the
+subscription hits a limit.
+
+`subagents-lite.json` deliberately sets no `agent.default`. Model precedence is
+session override > project file > `subagents-lite.json` > agent frontmatter >
+parent, so a config-wide default would silently outrank every role file: the
+first version set one and `oracle` ran on `deepseek-v4.1-flash` instead of grok.
+Each role names its own model; a role file that omits `model` inherits the
+parent.
+
+Each role file sets `include_system_prompt: false`, which is lite's `replace`
+mode: the child gets a minimal generic prompt plus the agent body, not the whole
+main-session prompt. `include_context_files: true` keeps AGENTS.md. Context is
+the other half of the cost, and lite has no fork mode: a child gets the prompt,
+the project context and the brief, never the conversation. The caller must
+therefore put the decision, the constraints and the question in the task text.
 
 Three things drive the map. Thinking levels only exist where the model
 publishes a `thinkingLevelMap`; asking a model with no map for a level is a
@@ -84,12 +88,7 @@ Price per 1M tokens for the models this map uses:
 
 | Model | in | out |
 |---|---|---|
-| `mimo-v2.6-flash` | 0.14 | 0.28 |
-| `qwen3.8-flash` | 0.15 | 0.47 |
-| `glm-5.3-flash` | 0.15 | 0.50 |
 | `deepseek-v4.1-flash` | 0.15 | 0.60 |
-| `minimax-m3` | 0.30 | 1.20 |
-| `deepseek-v4-pro` | 0.66 | 1.98 |
 | `glm-5.3` | 1.40 | 4.40 |
 | `qwen3.8-max`, `grok-4.7` | 2.00 | 6.00 |
 | `kimi-k3` | 3.00 | 15.00 |

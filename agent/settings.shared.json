@@ -12,8 +12,7 @@
     "npm:pi-mono-review",
     "npm:pi-simplify",
     "npm:pi-web-access",
-    "npm:pi-subagents",
-    "npm:pi-tern"
+    "npm:pi-subagents-lite"
   ],
   "skills": [
     "-~/.agents/skills/agent-browser",

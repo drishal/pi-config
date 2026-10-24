@@ -141,7 +141,7 @@ pi creates most of this on first run. What matters:
 | `extensions/`                          | Local TypeScript extensions                | Yes, except the machine-local ones (step 7) |
 | `skills/`                              | User-global skills (`SKILL.md` per dir)    | **No** (personal, like `mcp.json`; suggestions in step 7b) |
 | `themes/`                              | base16/base24 YAML (→ JSON via `base16-theme.ts`) or pi theme JSON | YAML + hand-written JSON only |
-| `subagents.json`                       | Per-extension config                       | Yes           |
+| `subagents-lite.json`, `agents/`       | Subagent roles: model, thinking, prompt     | **No** (personal; see docs/configuration.md) |
 | `keybindings.json`                     | Key overrides: Ctrl+Backspace / Ctrl+H delete a word | Yes |
 | `AGENTS.md`                            | Global system prompt + MCP routing rules   | Yes           |
 | `mcp-cache.json`, `mcp-npx-cache.json` | Auto-generated MCP tool caches             | No (auto)     |
@@ -682,10 +682,12 @@ These are **not in this repo** — supply them before first run:
 - [ ] `web-search.json` — optional. Only needed for a private SearXNG
       backend; `pi-web-access` works keyless otherwise (see Prerequisites).
 - [ ] `~/.pi/agent/mcp.json` — yours to write; suggestions in step 5.
-- [ ] `settings.json`'s `subagents` block — the per-machine role → model map
-      and its role map. Deliberately private: it names providers that exist
-      on one machine, and a shared copy fails closed on a fresh clone. See
-      [docs/configuration.md](docs/configuration.md#subagent-model-routing-per-machine).
+- [ ] `~/.pi/agent/subagents-lite.json` and `~/.pi/agent/agents/*.md` — the
+      per-machine subagent roles: default model, concurrency, and one file per
+      role with its model, thinking level and prompt. Deliberately private:
+      they name providers that exist on one machine, and a shared copy fails
+      closed on a fresh clone. See
+      [docs/configuration.md](docs/configuration.md#subagent-routing-personal).
 - [ ] `obscura` binary on `PATH`; `uvx` on `PATH`.
 
 ## 10. Verify
