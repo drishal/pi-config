@@ -113,6 +113,8 @@ export const role = {
 export const glyph = {
 	prompt: "❯",
 	bullet: "●",
+	/** The hollow half of the running blink. */
+	bulletOpen: "○",
 	open: "▾",
 	shut: "▸",
 	bar: "│",

@@ -36,10 +36,11 @@ import {
 	RUN_ENDS,
 	RUN_STARTS,
 	TIMER_AFTER_MS,
+	blinkOn,
 	durationLabel,
 	elapsedLabel,
-	watch,
 	tookMs,
+	watch,
 } from "./clock.ts";
 
 /** Max continuation lines a running command's detail may wrap onto. */
@@ -322,7 +323,13 @@ export function rowImages(row: ToolRow, width: number): string[] {
  * is the default and needs no colour of its own.
  */
 export function bullet(row: ToolRow, theme: ThemeLike): string {
-	if (row.isPartial) return paintRole(theme, "live", glyph.bullet);
+	if (row.isPartial) {
+		// Running: alternate filled and hollow, in phase with the thinking
+		// marker, so a waiting call is visibly alive.
+		return blinkOn()
+			? paintRole(theme, "live", glyph.bullet)
+			: paintRole(theme, "mark", glyph.bulletOpen);
+	}
 	if (row.result?.isError) return paintRole(theme, "fail", glyph.bullet);
 	return paintRole(theme, isHovered(row as object) ? "verb" : "mark", glyph.bullet);
 }
