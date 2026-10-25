@@ -51,7 +51,7 @@ import {
 	RUN_STARTS,
 	durationLabel,
 } from "./clock.ts";
-import { GROUPED, LEAD_LINES, bullet, isBlank, trimBlank } from "./row.ts";
+import { GROUPED, LEAD_LINES, bullet, isBlank, rowImages, trimBlank } from "./row.ts";
 
 /* ── the prompt: a `❯` quote over a full-width fill strip ──────────────── */
 
@@ -643,12 +643,19 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 		// An expanded (ctrl+o) row is a frame — or pi's box — which carries its
 		// own chrome. A bullet there sat alone on the box's blank first line.
 		if (r.expanded) return render(r, Math.max(8, width - pad.length)).map((l) => (l ? pad + l : l));
-		const lines = render(r, Math.max(8, width - pad.length - 2));
+		const inner = Math.max(8, width - pad.length - 2);
+		const lines = render(r, inner);
 		const lead = LEAD_LINES.get(r) ?? 0;
 		const callPad = leadPad(r);
-		return lines.map((l, idx) =>
+		// Images hang under the call, one indent past the bullet column. Their
+		// blank rows stay empty: pi's scroll crop finds an image by scanning
+		// upward to the escape line and stops at the first non-empty row.
+		const images = rowImages(r, inner);
+		const out = lines.map((l, idx) =>
 			idx === lead ? `${callPad}${bullet(r, theme)} ${l}` : `${pad}${idx < lead ? "" : "  "}${l}`,
 		);
+		for (const l of images) out.push(l === "" ? "" : `${pad}  ${l}`);
+		return out;
 	};
 
 	// Batch members that render nothing (a commit's siblings) neither count
@@ -685,7 +692,10 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 			if (framed.length > 0) body.push({ lines: framed, source: clickTarget(child) });
 			return;
 		}
-		const lines = render(child, Math.max(8, width - pad.length - 5));
+		const inner = Math.max(8, width - pad.length - 5);
+		const lines = render(child, inner);
+		// Images hang under the row, on the branch's continuation column.
+		const images = rowImages(child, inner);
 		const callLine = LEAD_LINES.get(child) ?? 0;
 		const drawn = lines.map((line, li) => {
 			// A `# remark` sits above its call, on the trunk it belongs to.
@@ -698,6 +708,7 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 			const prefix = li === callLine ? leadPad(child) : pad;
 			return prefix + lead + line;
 		});
+		for (const l of images) drawn.push(l === "" ? "" : `${pad}${trunk}  ${l}`);
 		if (drawn.length > 0) body.push({ lines: drawn, source: clickTarget(child) });
 	});
 

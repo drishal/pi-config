@@ -282,6 +282,39 @@ export function rowLines(row: ToolRow, theme: ThemeLike, width: number, opts: Ro
 	return lines;
 }
 
+/* ── images ────────────────────────────────────────────────────────────── */
+
+const IMAGE_CACHE = new WeakMap<object, { key: readonly unknown[]; lines: string[] }>();
+
+/**
+ * The images a call's result carries, laid out at `width`.
+ *
+ * pi keeps them as Image children of the tool component and draws them only
+ * in its own expanded view. The compact row shows the same components under
+ * the call line, so reading a screenshot leaves a screenshot in the
+ * transcript, not just a path. Rendered lines are cached — encoding an image
+ * is not something to redo on every repaint.
+ */
+export function rowImages(row: ToolRow, width: number): string[] {
+	const c = row as unknown as ToolInternals;
+	const images = c.imageComponents ?? [];
+	if (images.length === 0) return [];
+	const cacheable = !row.isPartial;
+	const key = [width, row.result] as const;
+	if (cacheable) {
+		const hit = IMAGE_CACHE.get(row as object);
+		if (hit && sameKey(hit.key, key)) return hit.lines;
+	}
+	const lines: string[] = [];
+	images.forEach((img, i) => {
+		const spacer = c.imageSpacers?.[i];
+		if (spacer) lines.push(...spacer.render(width));
+		lines.push(...img.render(width));
+	});
+	if (cacheable) IMAGE_CACHE.set(row as object, { key, lines });
+	return lines;
+}
+
 /* ── the bullet ────────────────────────────────────────────────────────── */
 
 /**
@@ -444,12 +477,7 @@ export function framedLines(comp: unknown, row: ToolRow, theme: ThemeLike, width
 	out.push(status.length > 0 ? labelled("╰", status.join(" · "), "╯", borderSlot === "rule" ? "fact" : "fail") : g(`╰${"─".repeat(width - 2)}╯`));
 
 	// Images keep pi's own layout, below the frame.
-	const images = c.imageComponents ?? [];
-	images.forEach((img, i) => {
-		const spacer = c.imageSpacers?.[i];
-		if (spacer) out.push(...spacer.render(width));
-		out.push(...img.render(width));
-	});
+	out.push(...rowImages(row, width));
 	return out;
 }
 
@@ -509,6 +537,7 @@ export function installRows(): Patchable | undefined {
 	if (typeof originalInvalidate === "function") {
 		proto.invalidate = function (): void {
 			ROW_CACHE.delete(this as object);
+			IMAGE_CACHE.delete(this as object);
 			HL_CACHE.delete(this as unknown as ToolRow);
 			originalInvalidate.call(this);
 		};
