@@ -8,6 +8,7 @@
  * tool-specific argument shapes; the row renderer just lays the words out.
  */
 
+import { plainText } from "./sanitize.ts";
 import { type ToolRow, countLines, num, plural, sameKey, shortPath, str } from "./style.ts";
 
 /** What a call did, at the coarsest useful level. Feeds the turn summary. */
@@ -198,6 +199,16 @@ export function humanise(name: string): string {
 }
 
 /**
+ * `mcp__context7__resolve-library-id` split into service and action. `humanise`
+ * alone reads the whole name as three words: "Mcp Context7 Resolve Library Id".
+ */
+function mcpLabel(name: string): { server: string; tool: string } | undefined {
+	const parts = name.split("__");
+	if (parts[0] !== "mcp" || parts.length < 3) return undefined;
+	return { server: parts[1]!, tool: parts.slice(2).join("__") };
+}
+
+/**
  * Every search-shaped tool reads the same: a pattern (or query, regex, name)
  * and, when one was given, the place it was searched.
  */
@@ -246,6 +257,24 @@ const BG_TASK_SPEC: Spec = {
 		return a === "list" && !c.row.isPartial && !c.row.result?.isError;
 	},
 };
+/**
+ * codemode's script reports the sub-calls it made in `details.calls`, and
+ * opens its result with a three-line script report. Neither reaches a row on
+ * its own: pi never emits the sub-calls as tool rows (they stay inside the
+ * script), and the report would otherwise count as output lines.
+ */
+const SCRIPT_REPORT = /^Script (?:completed|failed)\nWall time [\d.]+ seconds\nOutput:\n/;
+
+function codemodeCalls(c: Ctx): unknown[] {
+	const calls = c.details.calls;
+	return Array.isArray(calls) ? calls : [];
+}
+
+/** The script's own output, with the report above it removed. */
+function codemodeOutput(c: Ctx): string {
+	return c.text.replace(SCRIPT_REPORT, "").replace(/\n+$/, "");
+}
+
 
 const REGISTRY: Record<string, Spec> = {
 	...SEARCH,
@@ -372,18 +401,26 @@ const REGISTRY: Record<string, Spec> = {
 		facts: lineFacts,
 	},
 
-	codemode: {
-		category: "run",
-		// The model writes JavaScript that calls other tools. The verb matches
-		// what the fallback used to produce, so only the colour is new.
-		verb: "Codemode",
-		lang: "javascript",
-		subject: (c) => {
-			const rows = (str(c.args.code) ?? "").split("\n").filter((l) => l.trim());
-			return rows.length > 1 ? `${rows[0]} …` : rows[0];
-		},
-		facts: lineFacts,
+
+codemode: {
+	category: "run",
+	// The model writes JavaScript that calls other tools. The verb matches
+	// what the fallback used to produce, so only the colour is new.
+	verb: "Codemode",
+	lang: "javascript",
+	subject: (c) => {
+		const rows = (str(c.args.code) ?? "").split("\n").filter((l) => l.trim());
+		return rows.length > 1 ? `${rows[0]} …` : rows[0];
 	},
+	facts: (c) => {
+		const facts = failedFact(c);
+		const calls = codemodeCalls(c);
+		if (calls.length > 0) facts.push(plural(calls.length, "call"));
+		const lines = countLines(codemodeOutput(c));
+		if (lines > 0) facts.push(plural(lines, "line"));
+		return facts;
+	},
+},
 
 	bg_task: BG_TASK_SPEC,
 	bg_status: BG_TASK_SPEC,
@@ -466,8 +503,18 @@ function summarizeUncached(row: ToolRow): Summary {
 	const spec = REGISTRY[name];
 	if (!spec) {
 		// Unknown tool: its own name as the verb, and the first meaningful
-		// scalar argument as the subject.
+		// scalar argument as the subject. An MCP tool is named
+		// `mcp__<server>__<tool>`, so it reads better as server + tool.
 		const firstArg = Object.values(args).map(str).find(Boolean);
+		const mcp = mcpLabel(name);
+		if (mcp) {
+			return {
+				verb: humanise(mcp.server),
+				category: "other",
+				subject: firstArg ? `${mcp.tool} ${firstArg}` : mcp.tool,
+				facts: lineFacts(ctx),
+			};
+		}
 		return {
 			verb: humanise(name),
 			category: "other",
@@ -510,8 +557,10 @@ export function summarize(row: ToolRow): Summary {
 export function resultText(row: ToolRow): string {
 	const parts = row.result?.content;
 	if (!Array.isArray(parts)) return "";
-	return parts
-		.filter((p) => p?.type === "text" && typeof p.text === "string")
-		.map((p) => p.text as string)
-		.join("\n");
+	return plainText(
+		parts
+			.filter((p) => p?.type === "text" && typeof p.text === "string")
+			.map((p) => p.text as string)
+			.join("\n"),
+	);
 }
