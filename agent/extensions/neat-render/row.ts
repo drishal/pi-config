@@ -28,6 +28,7 @@ import {
 	state,
 	str,
 	subjectText,
+	sudoActive,
 	verbText,
 } from "./style.ts";
 import { summarize } from "./tools.ts";
@@ -402,9 +403,10 @@ export function highlightedCommand(cmd: string, theme: ThemeLike, width: number)
 	}
 	const room = Math.max(8, width - 2);
 	const out: string[] = [];
+	const marker = sudoActive() ? "# " : "$ ";
 	lines.forEach((line, i) => {
 		wrapTextWithAnsi(line, room).forEach((part, j) => {
-			out.push((i === 0 && j === 0 ? factText(theme, "$ ") : "  ") + part);
+			out.push((i === 0 && j === 0 ? factText(theme, marker) : "  ") + part);
 		});
 	});
 	return out;

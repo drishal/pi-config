@@ -187,3 +187,17 @@ export function oneLine(s: string, max: number): string {
 export function sameKey(a: readonly unknown[], b: readonly unknown[]): boolean {
 	return a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
 }
+
+/**
+ * sudo-session drops an empty marker file at /tmp/pi-sudo-<session-id> while a
+ * session sudo grant is active. We read it so bash commands render `# ` instead
+ * of `$ ` while commands would run as root. The file is cheap to probe and
+ * race-free in the only direction that matters (extension flipping it off after
+ * revoke is the same turn).
+ */
+import { existsSync } from "node:fs";
+export function sudoActive(): boolean {
+	const session = process.env.PI_SESSION_ID;
+	if (!session) return false;
+	try { return existsSync(`/tmp/pi-sudo-${session}`); } catch { return false; }
+}

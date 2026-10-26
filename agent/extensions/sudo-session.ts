@@ -23,6 +23,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
+import { unlinkSync, writeFileSync } from "node:fs";
 
 const STATUS_KEY = "sudo-session";
 const KEEPALIVE_INTERVAL_MS = 2 * 60 * 1000; // refresh sudo timestamp well before the typical 5min timeout
@@ -31,6 +32,8 @@ interface SudoState {
 	active: boolean;
 	password?: string;
 	keepalive?: ReturnType<typeof setInterval>;
+	/** Set when the user chose "one-shot" — the next bash call runs as root, then this clears. */
+	oneShotPassword?: string;
 }
 
 interface ToolResult {
@@ -165,6 +168,16 @@ function createSudoBashOperations(password?: string) {
 export default function sudoSession(pi: ExtensionAPI) {
 	let state: SudoState = { active: false };
 
+	// File-based signal for neat-render (and any other extension) to read.
+	// A session-scoped marker file that exists while sudo is active.
+	const SUDO_SIGNAL = `/tmp/pi-sudo-${process.env.PI_SESSION_ID ?? process.ppid}`;
+	function setSignal() {
+		try { writeFileSync(SUDO_SIGNAL, ""); } catch {}
+	}
+	function clearSignal() {
+		try { unlinkSync(SUDO_SIGNAL); } catch {}
+	}
+
 	function clearStatus(ctx?: { ui?: { setStatus?: (key: string, value?: string) => void } }) {
 		ctx?.ui?.setStatus?.(STATUS_KEY, undefined);
 	}
@@ -182,6 +195,7 @@ export default function sudoSession(pi: ExtensionAPI) {
 		if (state.keepalive) clearInterval(state.keepalive);
 		state.password = "";
 		state.active = false;
+		clearSignal();
 		state.keepalive = undefined;
 		clearStatus(ctx);
 		if (wasActive) void pi.exec("sudo", ["-k"], { timeout: 5_000 }).catch(() => undefined);
@@ -207,15 +221,23 @@ export default function sudoSession(pi: ExtensionAPI) {
 		}
 	}
 
-	async function enableSudo(reason: string, ctx: any): Promise<ToolResult> {
+	async function enableSudo(reason: string, ctx: any, opts?: { alwaysSession?: boolean }): Promise<ToolResult> {
 		if (state.active) return textResult("Sudo session already active.", { active: true });
 
-		const ok = await ctx.ui.confirm(
-			"Enable sudo for this session?",
-			`Reason: ${reason}\n\nThe agent's bash tool will run commands as root via sudo until you run /sudo-off or end the session. No duration cap.`,
-		);
-		if (!ok) return textResult("Sudo request denied by user.", { active: false });
-
+		let oneShot = false;
+		if (!opts?.alwaysSession) {
+			// Ask once: single command, or rest of session? ui.select gives us a real
+			// two-option menu; ui.confirm cannot express "either/or". The selected
+			// string comes back, so matching is label-based.
+			const CHOICE_ONE = "Run one command as root (this turn only)";
+			const CHOICE_SESSION = "Enable sudo until /sudo-off or session end";
+			const choice = await ctx.ui.select(
+				`Reason: ${reason}`,
+				[CHOICE_ONE, CHOICE_SESSION],
+			);
+			if (choice === undefined) return textResult("Sudo request cancelled.", { active: false });
+			oneShot = choice === CHOICE_ONE;
+		}
 		// Try cached/NOPASSWD first.
 		const probe = await pi.exec("sudo", ["-n", "-v"], { timeout: 10_000 });
 		let password: string | undefined;
@@ -229,8 +251,22 @@ export default function sudoSession(pi: ExtensionAPI) {
 			password = pw;
 		}
 
+		if (oneShot) {
+			// Stash the password for the next bash call only; the keepalive is off
+			// here since we never claim a session grant. If there's a terminal
+			// ticket already (sudo -n) the user's own timestamp stays valid —
+			// the one-shot is "transparent"; if sthe ticket expires between
+			// grant and use, the next bash call silently runs as the user.
+			state.oneShotPassword = password;
+			ctx.ui.notify("Sudo granted for the next bash command only.", "warning");
+			return textResult(
+				"Sudo granted for the agent's next bash command only. The next bash tool call runs as root; after that, commands run as the user again.",
+				{ active: false, oneShot: true },
+			);
+		}
 		state.password = password;
 		state.active = true;
+		setSignal();
 		startKeepalive(ctx);
 		updateStatus(ctx);
 		ctx.ui.notify("Sudo session enabled for the rest of the session.", "warning");
@@ -249,7 +285,9 @@ export default function sudoSession(pi: ExtensionAPI) {
 				return;
 			}
 			const reason = args.trim() || "User invoked /sudo";
-			const result = await enableSudo(reason, ctx);
+			// /sudo is the user typing it — they're deliberately asking for the
+			// session grant, so skip the scope chooser and persist like before.
+			const result = await enableSudo(reason, ctx, { alwaysSession: true });
 			if (result.isError) ctx.ui.notify(result.content[0].text, "error");
 		},
 	});
@@ -313,13 +351,23 @@ export default function sudoSession(pi: ExtensionAPI) {
 		...bashTool,
 		description: `${bashTool.description} Runs as root via sudo while a session sudo grant is active (see /sudo).`,
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			if (!state.active) {
-				return createBashToolDefinition(ctx.cwd).execute(toolCallId, params, signal, onUpdate, ctx);
+			if (state.active) {
+				updateStatus(ctx);
+				return createBashToolDefinition(ctx.cwd, {
+					operations: createSudoBashOperations(state.password),
+				}).execute(toolCallId, params, signal, onUpdate, ctx);
 			}
-			updateStatus(ctx);
-			return createBashToolDefinition(ctx.cwd, {
-				operations: createSudoBashOperations(state.password),
-			}).execute(toolCallId, params, signal, onUpdate, ctx);
+			if (state.oneShotPassword) {
+				// Consume the one-shot grant: strip it before running so a second
+				// call later in this turn does not ride along.
+				const pw = state.oneShotPassword;
+				state.oneShotPassword = undefined;
+				ctx.ui.notify("Running one command as root (one-shot sudo grant).", "warning");
+				return createBashToolDefinition(ctx.cwd, {
+					operations: createSudoBashOperations(pw),
+				}).execute(toolCallId, params, signal, onUpdate, ctx);
+			}
+			return createBashToolDefinition(ctx.cwd).execute(toolCallId, params, signal, onUpdate, ctx);
 		},
 	});
 
