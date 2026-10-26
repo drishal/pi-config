@@ -680,14 +680,17 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 	// off a tree connector so its facts stay on the call line.
 	shown.forEach((child, idx) => {
 		const last = idx === shown.length - 1;
-		const fork = branch(last ? "└─ " : "├─ ");
+		// With no header above the tree, the first branch is the top of the
+		// vertical: a tee there would leave its upper arm dangling in the air.
+		const first = idx === 0;
+		const firstFork = branch(last ? "└─ " : first ? "┌─ " : "├─ ");
 		const trunk = branch(last ? "   " : "│  ");
 		const node = child as unknown as object;
 		GROUPED.add(node);
 		if (child.expanded) {
 			// A frame brings its own chrome; just hang it off the tree.
 			const framed = render(child, Math.max(8, width - pad.length - 3)).map(
-				(line, li) => pad + (li === 0 ? fork : trunk) + line,
+				(line, li) => pad + (li === 0 ? firstFork : trunk) + line,
 			);
 			if (framed.length > 0) body.push({ lines: framed, source: clickTarget(child) });
 			return;
@@ -697,11 +700,14 @@ export function renderRun(run: ToolRow[], theme: ThemeLike, width: number): Frag
 		// Images hang under the row, on the branch's continuation column.
 		const images = rowImages(child, inner);
 		const callLine = LEAD_LINES.get(child) ?? 0;
+		// A remark above the call takes the corner, so the call below it joins
+		// the vertical with a tee instead of drawing a second corner.
+		const fork = first && callLine > 0 ? branch(last ? "└─ " : "├─ ") : firstFork;
 		const drawn = lines.map((line, li) => {
 			// A `# remark` sits above its call, on the trunk it belongs to.
 			const lead =
 				li < callLine
-					? branch("│  ")
+					? branch(first && li === 0 ? "┌  " : "│  ")
 					: li === callLine
 						? `${fork}${bullet(child, theme)} `
 						: `${trunk}  `;
