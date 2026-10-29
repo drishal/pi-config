@@ -25,8 +25,7 @@
  * ── Files ─────────────────────────────────────────────────────────────────
  * style.ts palette and glyphs · tools.ts the per-tool registry · row.ts one
  * call · turn.ts prompt, spacing and the answer · thinking.ts reasoning lines
- * · table.ts compact markdown tables · chrome.ts pi's own rules and summaries
- * · clock.ts the shared ticker.
+ * · chrome.ts pi's own rules and summaries · clock.ts the shared ticker.
  *
  * ── Why this is a renderer, not a tool wrapper ─────────────────────────────
  * The obvious way to get compact rows is to re-register `read`/`bash` with
@@ -61,7 +60,6 @@ import { installRows, uninstallRows } from "./row.ts";
 import { CARD_PATCH, GROUP_PATCH, installCard, installTurns } from "./turn.ts";
 import { foldThinkingFences, installThinking, uninstallThinking } from "./thinking.ts";
 import { clearClock } from "./clock.ts";
-import { installTable, uninstallTable } from "./table.ts";
 import { installBackgroundMessages } from "./background.ts";
 import { BORDER_PATCH, installBorder, installSummaries, uninstallSummaries } from "./chrome.ts";
 import { type Patchable, type RenderFn, type ThemeLike, off, state } from "./style.ts";
@@ -85,7 +83,6 @@ export default function (pi: ExtensionAPI) {
 	const card = installCard();
 	const thinking = installThinking();
 	const rows = installRows();
-	const table = installTable();
 
 	// pi's own rules and summary boxes, in the transcript's grammar.
 	const border = installBorder();
@@ -108,7 +105,6 @@ export default function (pi: ExtensionAPI) {
 		uninstallRows(rows);
 		uninstall(card, CARD_PATCH);
 		uninstallThinking(thinking);
-		uninstallTable(table);
 		uninstall(border, BORDER_PATCH);
 		uninstallSummaries();
 	});
