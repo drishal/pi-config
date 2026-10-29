@@ -98,7 +98,26 @@ function transcriptOf(messages: unknown[]): { text: string; userChars: number } 
 		}
 	}
 	const text = lines.join("\n");
-	return { text: text.length > TRANSCRIPT_CHARS ? `…${text.slice(-TRANSCRIPT_CHARS)}` : text, userChars };
+	if (text.length <= TRANSCRIPT_CHARS) return { text, userChars };
+	// Too long: keep every user line — the request, corrections and preferences
+	// come first in a run and would be the first cut — then the newest of the rest.
+	const isUser = (l: string) => l.startsWith("User: ");
+	let room = TRANSCRIPT_CHARS - lines.filter(isUser).reduce((n, l) => n + l.length + 1, 0);
+	const keep = new Set<number>();
+	for (let i = lines.length - 1; i >= 0; i--) {
+		if (isUser(lines[i])) keep.add(i);
+		else if (room >= lines[i].length + 1) {
+			keep.add(i);
+			room -= lines[i].length + 1;
+		} else room = -1; // the rest stays a contiguous tail
+	}
+	const out: string[] = [];
+	lines.forEach((l, i) => {
+		if (keep.has(i)) out.push(l);
+		else if (out.at(-1) !== "…") out.push("…");
+	});
+	const kept = out.join("\n");
+	return { text: kept.length > TRANSCRIPT_CHARS ? `…${kept.slice(-TRANSCRIPT_CHARS)}` : kept, userChars };
 }
 
 function summarize(applied: Applied[]): string {
