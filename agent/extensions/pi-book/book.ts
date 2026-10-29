@@ -7,6 +7,10 @@
  *   <root>/user/<chapter>.md           about the user: preferences, environment, workflow
  *   <root>/projects/<id>/<chapter>.md  about one project: decisions, conventions, gotchas
  *   <root>/projects/<id>/journal.md    medium-term: one digest per recent session
+ *   <root>/{user,projects/<id>}/appendix/<slug>.md
+ *                                      long write-ups (a debug session, logs, reference)
+ *                                      under a one-line summary: search finds them by
+ *                                      summary and body, only `read` loads the body
  *                                      ("## 2026-09-27 · title [s:1a2b3c4d]"), expiring
  *   <root>/.index/                     derived search data, rebuildable, safe to delete
  *   <root>/.history/                   a chapter's previous text, saved before any
@@ -142,6 +146,19 @@ export interface JournalEntry {
 	/** Short session id from the heading's "[s:…]" tag. */
 	sid: string;
 	bullets: string[];
+}
+
+/** A long-form memory: frontmatter (summary, date, session), "# Title", then free Markdown. */
+export interface Appendix {
+	rel: string;
+	scope: Scope;
+	project?: string;
+	slug: string;
+	title: string;
+	summary: string;
+	date: string;
+	session: string;
+	body: string;
 }
 
 const JOURNAL_HEAD = /^(\d{4}-\d{2}-\d{2}) · (.*?)\s*\[s:([\w-]+)\]$/;
@@ -422,21 +439,79 @@ export class Book {
 		return this.read(rel);
 	}
 
-	/** Regenerate INDEX.md: every chapter's summary and section headings. */
+	appendixRel(scope: Scope, slug: string, project?: string): string {
+		return scope === "user" ? `user/appendix/${slug}.md` : `projects/${project}/appendix/${slug}.md`;
+	}
+
+	/** Appendices in scope: the user's plus the given projects' (all projects when omitted). */
+	appendices(projects?: string[]): Appendix[] {
+		const out: Appendix[] = [];
+		const read = (dir: string, scope: Scope, project?: string) => {
+			let names: string[] = [];
+			try {
+				names = fs.readdirSync(path.join(this.root, dir, "appendix")).filter((n) => n.endsWith(".md")).sort();
+			} catch {
+				return;
+			}
+			for (const name of names) {
+				const rel = `${dir}/appendix/${name}`;
+				const raw = this.read(rel);
+				if (raw === undefined) continue;
+				const fm = /^---\n([\s\S]*?)\n---\n?/.exec(raw);
+				const field = (k: string) => (fm ? new RegExp(`^${k}:\\s*(.*)$`, "m").exec(fm[1])?.[1]?.trim() : undefined) ?? "";
+				const rest = fm ? raw.slice(fm[0].length) : raw;
+				const title = /^# (.+)$/m.exec(rest)?.[1]?.trim() ?? path.basename(name, ".md");
+				const body = rest.replace(/^\s*# .+\n?/, "").trim();
+				out.push({ rel, scope, project, slug: path.basename(name, ".md"), title, summary: field("summary") || title, date: field("date"), session: field("session"), body });
+			}
+		};
+		read("user", "user");
+		let ids: string[] = [];
+		try {
+			ids = fs.readdirSync(path.join(this.root, "projects")).sort();
+		} catch {
+			// No projects yet.
+		}
+		for (const id of ids) if (!projects || projects.includes(id)) read(`projects/${id}`, "project", id);
+		return out;
+	}
+
+	/** Write an appendix, replacing one with the same title (its old text goes to .history/). */
+	writeAppendix(scope: Scope, title: string, summary: string, body: string, opts: { project?: string; session?: string; date?: string } = {}): { rel: string; replaced: boolean } {
+		const rel = this.appendixRel(scope, kebab(title), opts.project);
+		const replaced = this.read(rel) !== undefined;
+		if (replaced) this.backup(rel);
+		const one = (s: string) => s.replace(/\s+/g, " ").trim();
+		const head = [`summary: ${one(summary)}`, `date: ${opts.date ?? today()}`, ...(opts.session ? [`session: ${opts.session}`] : [])];
+		this.write(rel, `---\n${head.join("\n")}\n---\n# ${one(title)}\n\n${body.trim()}\n`);
+		return { rel, replaced };
+	}
+
+	/** Delete an appendix; its text goes to .history/. False when there is none. */
+	removeAppendix(rel: string): boolean {
+		if (this.read(rel) === undefined) return false;
+		this.backup(rel);
+		fs.rmSync(path.join(this.root, rel), { force: true });
+		return true;
+	}
+
+	/** Regenerate INDEX.md: every chapter's summary and section headings, and every appendix. */
 	writeIndex(): void {
-		const lines = ["# Memory index", "", "Generated — do not edit. Chapters and their sections; read one with the memory tool.", ""];
+		const lines = ["# Memory index", "", "Generated — do not edit. Chapters and their sections, then appendices; read one with the memory tool.", ""];
 		const chapters = this.chapters();
-		const group = (title: string, list: Chapter[]) => {
-			if (!list.length) return;
+		const appendices = this.appendices();
+		const group = (title: string, list: Chapter[], apps: Appendix[]) => {
+			if (!list.length && !apps.length) return;
 			lines.push(`## ${title}`, "");
 			for (const c of list) {
 				lines.push(`- ${c.rel} — ${c.summary || c.title} (${c.sections.map((s) => s.heading).join(", ") || "empty"})`);
 			}
+			for (const a of apps) lines.push(`- ${a.rel} — ${a.summary}`);
 			lines.push("");
 		};
-		group("You", chapters.filter((c) => c.scope === "user"));
-		const ids = [...new Set(chapters.filter((c) => c.project).map((c) => c.project as string))];
-		for (const id of ids) group(`Project ${id}`, chapters.filter((c) => c.project === id));
+		group("You", chapters.filter((c) => c.scope === "user"), appendices.filter((a) => a.scope === "user"));
+		const ids = [...new Set([...chapters, ...appendices].filter((c) => c.project).map((c) => c.project as string))];
+		for (const id of ids) group(`Project ${id}`, chapters.filter((c) => c.project === id), appendices.filter((a) => a.project === id));
 		this.write("INDEX.md", lines.join("\n"));
 	}
 }

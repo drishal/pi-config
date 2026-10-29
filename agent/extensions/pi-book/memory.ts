@@ -8,6 +8,9 @@
  *           rewritten by each capture, recalled for the next sessions, expired
  *           after journal.ttlDays — after a last chance to promote lasting facts
  *   long    the book's chapters: durable facts, kept until changed
+ *   appendix long write-ups the agent saves through the tool (a debug session's
+ *           cause, commands, key log lines): found by summary and text, recalled
+ *           as one summary line, the body read only on demand
  *   archive pi's raw session files, searched on demand (archive.ts)
  * The capture model sorts each item into long (ops), medium (journal) or
  * nothing. Size then routes in code: a "fact" too long for a note goes to the
@@ -17,7 +20,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Book, cleanFact, JOURNAL, type JournalEntry, kebab, type Scope, today } from "./book.ts";
+import { type Appendix, Book, cleanFact, JOURNAL, type JournalEntry, kebab, type Scope, today } from "./book.ts";
 import { type Complete, type LlmConfig, makeLlm } from "./llm.ts";
 import { resolveProvider, splitModelRef } from "./providers.ts";
 import { bulletUnits, type Chunk, chunkSections, type EmbedConfig, Embedder, type Hit, SearchIndex, sectionLines, tokenize } from "./search.ts";
@@ -226,6 +229,18 @@ const NEAR_DUP = 0.85;
 const SECRET =
 	/(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\b[a-f0-9]{40,}\b|(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S{8,})/i;
 
+/**
+ * Credentials inside an appendix body are blanked rather than refusing the
+ * page: logs are long and one stray token should not lose the rest. Bare
+ * 40-hex strings stay (in logs they are commit ids); a private key refuses it.
+ */
+const REDACT =
+	/(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]+)?|(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S{8,})/gi;
+const MAX_APPENDIX = 6000;
+const MAX_SUMMARY = 200;
+/** Recall shows at most this many matching appendix summaries. */
+const RECALL_APPENDICES = 2;
+
 export function looksSecret(text: string): boolean {
 	return SECRET.test(text);
 }
@@ -288,6 +303,64 @@ export class Memory {
 
 	chunks(project?: string): Chunk[] {
 		return chunkSections(this.book.chapters(project === undefined ? undefined : [project]).flatMap((c) => c.sections));
+	}
+
+	/** Appendix bodies as search chunks, each headed by its summary (so a hit says what it is). */
+	appendixChunks(project?: string): Chunk[] {
+		return chunkSections(
+			this.book.appendices(project === undefined ? undefined : [project]).map((a) => ({
+				id: a.rel,
+				rel: a.rel,
+				chapter: "appendix",
+				scope: a.scope,
+				project: a.project,
+				heading: a.summary,
+				text: `## ${a.summary}\n${a.title}\n${a.body}`,
+			})),
+		);
+	}
+
+	/**
+	 * Appendices matching a query, best first, one entry per appendix — their
+	 * summaries only; the body is for `read`. Filtered like notes: below minCos
+	 * out, unless keepKeyword and the words matched.
+	 */
+	async findAppendices(
+		query: string,
+		project: string,
+		opts: { k: number; minCos?: number; keepKeyword?: boolean; signal?: AbortSignal },
+	): Promise<Appendix[]> {
+		const all = this.book.appendices([project]);
+		if (!all.length) return [];
+		const chunks = this.appendixChunks(project);
+		const { hits, mode } = await this.index.search(chunks, query, chunks.length, opts.signal);
+		const out: Appendix[] = [];
+		for (const h of hits) {
+			const ok = opts.minCos === undefined || mode === "keyword" || (h.cos ?? 0) >= opts.minCos || (!!opts.keepKeyword && h.bm25 !== undefined);
+			const a = ok ? all.find((x) => x.rel === h.chunk.section.rel) : undefined;
+			if (a && !out.includes(a)) out.push(a);
+			if (out.length >= opts.k) break;
+		}
+		return out;
+	}
+
+	/** Save a long write-up under a one-line summary; every refusal is reported, nothing throws. */
+	saveAppendix(input: { scope: Scope; title: string; summary: string; body: string }, project: string, opts: { session?: string } = {}): { ok: boolean; note: string } {
+		const summary = cleanFact(input.summary);
+		const title = (input.title || summary).replace(/[#\n]/g, " ").trim().slice(0, 80);
+		const body = input.body.trim();
+		if (input.scope === "project" && !project) return { ok: false, note: "refused: no project here (temp directory)" };
+		if (!summary) return { ok: false, note: "refused: an appendix needs a one-line summary" };
+		if (summary.length > MAX_SUMMARY) return { ok: false, note: `refused: summary over ${MAX_SUMMARY} chars` };
+		if (!body) return { ok: false, note: "refused: empty body" };
+		if (body.length > MAX_APPENDIX) return { ok: false, note: `refused: body over ${MAX_APPENDIX} chars — keep the lines that matter` };
+		if (looksSecret(summary) || looksSecret(title) || /-----BEGIN [A-Z ]*PRIVATE KEY/.test(body)) return { ok: false, note: "refused: looks like a credential" };
+		const { rel, replaced } = this.book.writeAppendix(input.scope, title, summary, body.replace(REDACT, "[redacted]"), {
+			project: input.scope === "project" ? project : undefined,
+			session: opts.session,
+		});
+		this.book.writeIndex();
+		return { ok: true, note: `${replaced ? "replaced" : "saved"} ${rel}` };
 	}
 
 	async search(query: string, project: string | undefined, k: number, signal?: AbortSignal) {
@@ -381,6 +454,10 @@ export class Memory {
 			});
 		const userChapters = chapters.filter((c) => c.scope === "user").map((c) => c.chapter);
 		if (userChapters.length) toc.unshift(`- user/: ${userChapters.join(", ")} (read "user/<name>.md")`);
+		for (const [dir, n] of Object.entries(
+			this.book.appendices([project]).reduce<Record<string, number>>((m, a) => ({ ...m, [path.dirname(a.rel)]: (m[path.dirname(a.rel)] ?? 0) + 1 }), {}),
+		))
+			toc.push(`- ${dir}/ — ${n} long write-up${n === 1 ? "" : "s"} (search finds them by summary and text; read one by path)`);
 		const journalCount = project ? this.book.journal(project).length : 0;
 		if (journalCount) toc.push(`- ${this.book.journalRel(project)} — digests of the last ${journalCount} session${journalCount === 1 ? "" : "s"} (expire after ${this.cfg.journal.ttlDays || "∞"} days)`);
 		const lines = [
@@ -412,6 +489,13 @@ export class Memory {
 			seen.add(`${this.book.journalRel(project)}#${e.heading}`);
 		}
 
+		// Matching appendices: a summary line each, room kept for them before the notes.
+		const apps = await this.findAppendices(prompt, project, { k: RECALL_APPENDICES, minCos: this.cfg.recall.minCos, signal: opts.signal }).catch(() => []);
+		const appLines = apps.length ? ["", "Matching appendices (long write-ups — read the path when the detail matters):", ...apps.map((a) => `- ${a.rel} — ${a.summary}`)] : [];
+		const appChars = appLines.join("\n").length + 1;
+		if (appChars < budget) budget -= appChars;
+		else appLines.length = 0;
+
 		// Matching notes as single facts, never more than the notes budget.
 		const r = await this.read(prompt, project, {
 			budgetTokens: Math.min(this.cfg.recall.budgetTokens, Math.floor(budget / 4)),
@@ -428,6 +512,8 @@ export class Memory {
 			notes.push(`${g.section.rel} › ${g.section.heading}`);
 			noteCount += g.lines.length;
 		}
+		lines.push(...appLines);
+		notes.push(...apps.slice(0, appLines.length ? apps.length : 0).map((a) => a.rel));
 		lines.push("</memory>");
 		const text = lines.join("\n");
 		return { text, notes, noteCount, chapters: chapters.length, sessions, mode: r.mode, tokens: Math.round(text.length / 4) };

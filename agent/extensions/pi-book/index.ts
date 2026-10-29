@@ -22,12 +22,13 @@
  *   expiry   At session start, digests past journal.ttlDays get one promotion
  *            pass (lasting facts move into the chapters), then are removed.
  *   tool     `memory`: search, read a chapter, write/update/delete a note,
+ *            appendix (save a long write-up under a one-line summary),
  *            history (search past sessions verbatim).
  *
  * /remember <fact>        file a fact (the model picks chapter and section)
  * /memory                 status: book, models, last captures
  * /memory search <query>  ranked hits with their BM25 / vector ranks
- * /memory reindex         re-embed everything and rewrite INDEX.md
+ * /memory reindex         re-embed everything (notes and appendices), rewrite INDEX.md
  * /memory tidy            propose merges of duplicate or stale notes in scope
  *
  * Models and paths live in agent/pi-book.json (per machine, never synced):
@@ -298,20 +299,24 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Your long-term memory book: Markdown notes about the user (all projects) and the current project, kept across sessions. " +
 			'search: hybrid keyword + semantic search (query). read: a chapter by path such as "user/preferences.md", or "INDEX". ' +
-			"write: record one durable fact (scope, chapter, section, text). update / delete: change a note, quoting its text as old. " +
+			"write: record one durable fact (scope, chapter, section, text). update / delete: change a note, quoting its text as old; delete with path removes an appendix. " +
+			"appendix: save a long write-up — a debug session's cause, commands and key log lines, or reference material — as text (up to 6000 chars) under a one-line summary; search lists it by summary, read loads it. " +
 			"history: keyword search over past sessions of this project, verbatim — for details the notes do not keep (errors, commands, what exactly was said).",
 		promptSnippet: "Search, read or record long-term memory notes about the user and this project",
 		promptGuidelines: [
 			"Use memory write when the user states a lasting preference, corrects you, or a project decision is made — never for task progress or secrets.",
+			"After solving a non-trivial problem whose detail would help next time (a root cause, the commands and log lines that showed it), save it with memory appendix.",
 		],
 		parameters: Type.Object({
-			action: StringEnum(["search", "read", "write", "update", "delete", "history"] as const),
+			action: StringEnum(["search", "read", "write", "update", "delete", "appendix", "history"] as const),
 			query: Type.Optional(Type.String({ description: "search / history: what to look for" })),
-			path: Type.Optional(Type.String({ description: 'read: chapter path from the index, or "INDEX"' })),
-			scope: Type.Optional(StringEnum(["user", "project"] as const, { description: "write: user = about the person, everywhere; project = this repo only" })),
+			path: Type.Optional(Type.String({ description: 'read: chapter or appendix path from the index, or "INDEX"; delete: an appendix path' })),
+			scope: Type.Optional(StringEnum(["user", "project"] as const, { description: "write / appendix: user = about the person, everywhere; project = this repo only" })),
 			chapter: Type.Optional(Type.String({ description: "write: broad topic, e.g. preferences, environment, conventions, decisions, gotchas" })),
 			section: Type.Optional(Type.String({ description: "write: short heading within the chapter" })),
-			text: Type.Optional(Type.String({ description: "write / update: one self-contained sentence" })),
+			text: Type.Optional(Type.String({ description: "write / update: one self-contained sentence; appendix: the write-up (Markdown)" })),
+			title: Type.Optional(Type.String({ description: "appendix: short title; the same title replaces it" })),
+			summary: Type.Optional(Type.String({ description: "appendix: one line saying what it holds, so a search finds it" })),
 			old: Type.Optional(Type.String({ description: "update / delete: the existing note's text" })),
 			budget: Type.Optional(Type.Number({ description: "search: token budget for results (default 800)" })),
 			k: Type.Optional(Type.Number({ description: "history: number of excerpts (default 4)" })),
@@ -332,8 +337,10 @@ export default function (pi: ExtensionAPI) {
 						keepKeyword: true,
 						signal,
 					});
-					if (!r.groups.length) return reply("No matching notes.");
+					const apps = await m.findAppendices(params.query, scope, { k: 4, minCos: m.cfg.recall.minCos, keepKeyword: true, signal }).catch(() => []);
+					if (!r.groups.length && !apps.length) return reply("No matching notes.");
 					const body = r.groups.map((g) => `[${g.section.rel} › ${g.section.heading}]\n${g.lines.join("\n")}`);
+					if (apps.length) body.push(`Appendices (read the path for the full text):\n${apps.map((a) => `- ${a.rel} — ${a.summary}`).join("\n")}`);
 					return reply(`${body.join("\n\n")}${r.mode !== "hybrid" ? `\n\n(${r.mode} search${r.error ? `: ${r.error}` : ""})` : ""}`);
 				}
 				case "history": {
@@ -353,9 +360,29 @@ export default function (pi: ExtensionAPI) {
 					if (!inScope || rel.includes("..")) return reply(`${rel} is not a chapter in scope (user/… or projects/${scope}/…)`);
 					return reply(m.book.readText(rel) ?? `No chapter ${rel}. Read "INDEX" for the list.`);
 				}
+				case "appendix": {
+					const a = m.saveAppendix(
+						{ scope: params.scope ?? "project", title: params.title ?? "", summary: params.summary ?? "", body: params.text ?? "" },
+						scope,
+						{ session: session?.id },
+					);
+					note(`tool appendix: ${a.note}`);
+					if (a.ok) await m.index.refresh(m.appendixChunks(scope)).catch(() => {});
+					return reply(a.ok ? `Appendix ${a.note}` : `Not saved — ${a.note}`);
+				}
+				case "delete":
+					if (params.path) {
+						const rel = params.path.replace(/^\/+/, "");
+						const ok = /^(?:user|projects\/[^/]+)\/appendix\/[^/]+\.md$/.test(rel) && (rel.startsWith("user/") || rel.startsWith(`projects/${scope}/`));
+						if (!ok) return reply(`${rel} is not an appendix in scope`);
+						const done = m.book.removeAppendix(rel);
+						if (done) m.book.writeIndex();
+						note(`tool delete ${rel}: ${done ? "removed" : "not found"}`);
+						return reply(done ? `Deleted ${rel} (previous text kept in .history/)` : `No appendix ${rel}`);
+					}
+				// falls through: delete a note
 				case "write":
-				case "update":
-				case "delete": {
+				case "update": {
 					const op: Op =
 						params.action === "write"
 							? { op: "add", scope: params.scope ?? "project", chapter: params.chapter ?? "notes", section: params.section ?? "Notes", text: params.text ?? "" }
@@ -409,7 +436,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (sub === "reindex") {
-				const chunks = m.chunks();
+				const chunks = [...m.chunks(), ...m.appendixChunks()];
 				try {
 					const n = await m.index.refresh(chunks);
 					m.index.prune(chunks);
@@ -450,6 +477,7 @@ export default function (pi: ExtensionAPI) {
 				...(m.cfg.warnings ?? []).map((w) => `⚠ ${w}`),
 				`recall: ${m.cfg.recall.enabled ? `on, notes ≤${m.cfg.recall.budgetTokens} tokens, block ≤${m.cfg.recall.maxChars} chars` : "off"} · ${recalled ? "done this session" : "pending"}`,
 				`journal: ${m.cfg.journal.enabled ? `${m.book.journal(scope).length} digests, recall ${m.cfg.journal.recall}, expire after ${m.cfg.journal.ttlDays || "∞"} days` : "off"}${session ? ` · this session [s:${session.id}]` : ""}`,
+				`appendix: ${m.book.appendices(scope ? [scope] : []).length} long write-ups in scope`,
 				`archive: ${archive.files(scope, sessionFile).length} past sessions searchable (memory action "history")`,
 				...(log.length ? ["", ...log.slice(-6).map((e) => `${e.at.toTimeString().slice(0, 8)} ${e.what}`)] : []),
 			];
