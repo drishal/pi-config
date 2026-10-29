@@ -313,6 +313,28 @@ export class SearchIndex {
 	}
 
 	/**
+	 * For each text, the chunk with the highest cosine — texts embedded as
+	 * documents, so a new note compares with stored ones like for like.
+	 * undefined everywhere when embeddings are off.
+	 */
+	async nearest(chunks: Chunk[], texts: string[], signal?: AbortSignal): Promise<Array<{ chunk: Chunk; cos: number } | undefined>> {
+		if (!this.embedder.enabled || !chunks.length || !texts.length) return texts.map(() => undefined);
+		await this.refresh(chunks, signal);
+		const cache = this.load();
+		const vecs = await this.embedder.embed(texts, "doc", signal);
+		return vecs.map((v) => {
+			let best: { chunk: Chunk; cos: number } | undefined;
+			for (const c of chunks) {
+				const u = cache.vectors[hash(c.text)];
+				if (!u) continue;
+				const cos = dot(v, u);
+				if (!best || cos > best.cos) best = { chunk: c, cos };
+			}
+			return best;
+		});
+	}
+
+	/**
 	 * Top `k` chunks for the query. `mode` is recorded on the result so callers
 	 * can tell a degraded (keyword-only) search from a hybrid one.
 	 */

@@ -216,6 +216,12 @@ function digestRank(b: string): number {
 /** A digest bullet: longer is cut — the detail is still in the archive. */
 const MAX_BULLET = 240;
 const MAX_OPS = 8;
+/**
+ * A new note this similar (cosine) to a stored one goes to the dedupe judge.
+ * From the book's own pairs: reworded duplicates scored 0.87–0.91, but so did
+ * two different facts about one feature (0.90) — so similarity only nominates.
+ */
+const NEAR_DUP = 0.85;
 /** Never store what looks like a credential, whatever the model says. */
 const SECRET =
 	/(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|\b[a-f0-9]{40,}\b|(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S{8,})/i;
@@ -550,7 +556,8 @@ export class Memory {
 		}
 
 		const maxOps = opts.profile === "conversation" ? 40 : MAX_OPS;
-		const applied = [...refused, ...this.apply(ops, project, { date: opts.date, maxOps })];
+		const deduped = await this.dedupe(ops, project, opts.signal);
+		const applied = [...refused, ...deduped.skipped, ...this.apply(deduped.ops, project, { date: opts.date, maxOps })];
 		if (journal && opts.session) {
 			const bullets = journal
 				.map((b) => cleanFact(String(b)))
@@ -584,6 +591,51 @@ export class Memory {
 		const expired = this.book.expireJournal(project, ttl).length;
 		this.book.writeIndex();
 		return { expired, promoted };
+	}
+
+	/**
+	 * New notes that nearly match a stored one get a second look: the model
+	 * says whether each is the same fact (dropped), a newer version (it updates
+	 * the stored note) or a different fact (added). Without embeddings, or when
+	 * the judge fails, the adds go through as before.
+	 */
+	private async dedupe(ops: Op[], project: string, signal?: AbortSignal): Promise<{ ops: Op[]; skipped: Applied[] }> {
+		const adds = ops.filter((o): o is Extract<Op, { op: "add" }> => o.op === "add");
+		if (!adds.length) return { ops, skipped: [] };
+		const units = bulletUnits(
+			this.book
+				.chapters([project])
+				.filter((c) => c.chapter !== JOURNAL)
+				.flatMap((c) => c.sections),
+		);
+		const texts = adds.map((a) => `## ${String(a.section || "Notes").trim()}\n- ${today()} · ${cleanFact(String(a.text ?? ""))}`);
+		const near = await this.index.nearest(units, texts, signal).catch(() => adds.map(() => undefined));
+		const pairs = adds
+			.map((add, i) => ({ add, old: near[i] && near[i].cos >= NEAR_DUP ? near[i].chunk.text.split("\n")[1].replace(/^- \d{4}-\d{2}-\d{2} · /, "") : "" }))
+			.filter((p) => p.old);
+		if (!pairs.length) return { ops, skipped: [] };
+		let verdicts: unknown[] = [];
+		try {
+			const body = pairs.map((p, i) => `${i + 1}. new: ${cleanFact(String(p.add.text))}\n   stored: ${p.old}`).join("\n");
+			const { text } = await this.llm(DEDUPE_SYSTEM, `${body}\n\nReply with JSON only.`, { label: "memory dedupe", signal });
+			const j = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as { verdicts?: unknown };
+			if (Array.isArray(j.verdicts)) verdicts = j.verdicts;
+		} catch {
+			return { ops, skipped: [] };
+		}
+		const skipped: Applied[] = [];
+		const replace = new Map<Op, Op | undefined>();
+		pairs.forEach((p, i) => {
+			const v = String(verdicts[i] ?? "different").toLowerCase();
+			if (v === "same") {
+				replace.set(p.add, undefined);
+				skipped.push({ op: p.add, ok: false, note: `same as a stored note: ${p.old.slice(0, 80)}` });
+			} else if (v === "newer") {
+				replace.set(p.add, { op: "update", old: p.old, text: String(p.add.text) });
+			}
+		});
+		const out = ops.flatMap((o) => (replace.has(o) ? (replace.get(o) ? [replace.get(o) as Op] : []) : [o]));
+		return { ops: out, skipped };
 	}
 
 	private async promote(entries: JournalEntry[], project: string, signal?: AbortSignal): Promise<Applied[]> {
@@ -682,6 +734,12 @@ const CONVERSATION_JOURNAL_RULES = `Second tier — the session journal: a diges
 - Up to {max} bullets: the events, plans, feelings and details discussed, each naming the person and giving absolute dates.
 - Include specifics the notes left out (names, places, objects, reasons) — the digest is where detail survives.
 - It REPLACES the digest so far; reply "journal": null only for pure small talk.`;
+
+const DEDUPE_SYSTEM = `Each item pairs a new memory note with the stored note most similar to it. For each, decide:
+- "same": the new note says what the stored one already says (reworded, or less specific)
+- "newer": the same subject, and the new note changes, corrects or adds detail to the stored one, so it should replace it
+- "different": a different fact, even if about the same topic — both are kept
+Reply with JSON only, one verdict per item in order: {"verdicts": ["same", "newer", "different", …]}`;
 
 const PROMOTE_SYSTEM = `Journal entries from a coding agent's past sessions are about to expire. Record as long-term notes only what is still a lasting fact: user preferences, project decisions and why, conventions, gotchas, commands that work. Skip progress, finished tasks and anything the notes already cover. Never turn a Done: or Tried: bullet into a preference of the user. Usually there is nothing.
 
