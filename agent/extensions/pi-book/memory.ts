@@ -172,7 +172,7 @@ export function loadConfig(agentDir: string): MemoryConfig {
 
 /** One edit proposed by capture or asked for through the tool. */
 export type Op =
-	| { op: "add"; scope: Scope; chapter: string; section: string; text: string; summary?: string }
+	| { op: "add"; scope: Scope; chapter: string; section: string; text: string; summary?: string; quote?: string }
 	| { op: "update"; old: string; text: string }
 	| { op: "delete"; old: string };
 
@@ -235,6 +235,30 @@ export function overlap(a: string, b: string): number {
 }
 
 const THIS_PROJECT = /\b(?:this|the current) (?:repo|repository|project|codebase|workspace)\b/i;
+
+/** A note that says what the user wants — it needs the user's own words behind it (see quoted()). */
+const USER_CLAIM =
+	/^(?:the )?user (?:wants|prefers|likes|dislikes|asks|asked|insists|expects|requires|chose|approved|rejects|rejected|does not want|doesn't want)\b|^(?:prefers|wants|likes|dislikes)\b/i;
+const PREFERENCE_CHAPTER = /^(?:preferences|workflow|style|styling|rules)$/;
+
+/**
+ * True when the quote's words (stemmed, stopwords dropped) nearly all appear in
+ * one user line of the transcript — so a preference was stated, not inferred
+ * from what the assistant did.
+ */
+export function quoted(quote: string, transcript: string): boolean {
+	const q = new Set(tokenize(quote));
+	if (!q.size) return false;
+	return transcript
+		.split("\n")
+		.filter((l) => l.startsWith("User: "))
+		.some((l) => {
+			const words = new Set(tokenize(l));
+			let n = 0;
+			for (const w of q) if (words.has(w)) n++;
+			return n / q.size >= 0.8;
+		});
+}
 
 /**
  * An update whose words (stemmed, stopwords dropped) are exactly the note's is
@@ -502,6 +526,17 @@ export class Memory {
 		const { text, model } = await this.llm(system, prompt, { label: "memory capture", signal: opts.signal });
 		let ops = parseOps(text);
 		if (opts.forceScope) ops = ops.map((o) => (o.op === "add" ? { ...o, scope: opts.forceScope as Scope } : o));
+		// Facts the session found may be kept, but "the user wants …" only on the user's words.
+		const refused: Applied[] = [];
+		if (opts.profile !== "conversation") {
+			ops = ops.filter((o) => {
+				if (o.op !== "add") return true;
+				const claim = USER_CLAIM.test(cleanFact(String(o.text ?? ""))) || PREFERENCE_CHAPTER.test(kebab(o.chapter || ""));
+				if (!claim || quoted(String(o.quote ?? ""), transcript)) return true;
+				refused.push({ op: o, ok: false, note: "refused: no user words state this preference" });
+				return false;
+			});
+		}
 		// An empty list never wipes a digest: models send [] for "nothing new" as often as null.
 		let journal = journalOn ? parseJournal(text) : undefined;
 		if (journal && !journal.length) journal = undefined;
@@ -515,7 +550,7 @@ export class Memory {
 		}
 
 		const maxOps = opts.profile === "conversation" ? 40 : MAX_OPS;
-		const applied = this.apply(ops, project, { date: opts.date, maxOps });
+		const applied = [...refused, ...this.apply(ops, project, { date: opts.date, maxOps })];
 		if (journal && opts.session) {
 			const bullets = journal
 				.map((b) => cleanFact(String(b)))
@@ -605,7 +640,7 @@ export function parseOps(text: string): Op[] {
 
 const OPS_FORMAT = `Output format — JSON only, no prose:
 {"ops": [
-  {"op": "add", "scope": "user" | "project", "chapter": "kebab-case-name", "section": "Short Heading", "text": "one self-contained fact"},
+  {"op": "add", "scope": "user" | "project", "chapter": "kebab-case-name", "section": "Short Heading", "text": "one self-contained fact", "quote": "the user's words, for a preference"},
   {"op": "update", "old": "<existing note text, copied>", "text": "the corrected fact"},
   {"op": "delete", "old": "<existing note text, copied>"}
 ]}
@@ -620,15 +655,16 @@ Keep:
 - the user's stated preferences, corrections of the agent, and how they like to work (scope "user")
 - the user's machine, tools and environment when it matters for future work (scope "user")
 - project decisions and why, conventions, architecture, non-obvious gotchas, commands that work, constraints (scope "project")
+- what the session established, even when the assistant found it: a confirmed root cause, a gotcha, an environment detail, a command that works — once verified, never while it is a guess. Such a finding may also update a note it proves wrong.
 
 Never record:
 - what was done in this session, task progress, or plans ("we fixed X", "next we will…") — that is journal material when there is a journal, never a note
-- rules you infer from what happened — only rules the user states and decisions the user makes
-- the assistant's own work, findings or fixes: they never add, change or delete a note — a finding that contradicts a note goes to the journal, and only the user can change the note
+- a preference, rule or correction the user did not state: never turn what the assistant did or suggested into "the user wants …"
 - anything readable from the code, git history or docs
-- the assistant's own suggestions the user did not confirm
-- guesses, one-off errors, file contents, long lists
+- guesses, unconfirmed hypotheses, one-off errors, file contents, long lists, measurements that only describe one debugging session
 - secrets: keys, tokens, passwords, private URLs with credentials
+
+A preference, rule or correction of the user's needs "quote": the user's own words from the conversation that state it, copied exactly (a short phrase is enough). Without one it is not recorded.
 
 Each fact: one sentence under 200 characters, specific (names, paths, versions), understandable without the conversation. No relative time ("last month", "yesterday"): give the date or leave it out.
 
@@ -647,7 +683,7 @@ const CONVERSATION_JOURNAL_RULES = `Second tier — the session journal: a diges
 - Include specifics the notes left out (names, places, objects, reasons) — the digest is where detail survives.
 - It REPLACES the digest so far; reply "journal": null only for pure small talk.`;
 
-const PROMOTE_SYSTEM = `Journal entries from a coding agent's past sessions are about to expire. Record as long-term notes only what is still a lasting fact: user preferences, project decisions and why, conventions, gotchas, commands that work. Skip progress, finished tasks and anything the notes already cover. Usually there is nothing.
+const PROMOTE_SYSTEM = `Journal entries from a coding agent's past sessions are about to expire. Record as long-term notes only what is still a lasting fact: user preferences, project decisions and why, conventions, gotchas, commands that work. Skip progress, finished tasks and anything the notes already cover. Never turn a Done: or Tried: bullet into a preference of the user. Usually there is nothing.
 
 ${OPS_FORMAT}`;
 
