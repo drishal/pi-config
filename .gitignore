@@ -21,8 +21,6 @@
 !/agent/model-state_example.json
 !/agent/pi-book_example.json
 !/agent/keybindings.json
-!/agent/pi-hashline-edit-pro/
-/agent/pi-hashline-edit-pro/*
 !/agent/pi-hashline-edit-pro/config.json
 !/agent/extensions/
 !/agent/themes/
