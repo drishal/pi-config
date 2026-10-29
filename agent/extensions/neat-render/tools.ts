@@ -141,6 +141,17 @@ export function diffStat(added?: number, removed?: number): string | undefined {
 	return parts.join(", ");
 }
 
+/** Count included/excluded lines from a diff body when the tool doesn't send metrics. */
+export function diffCountsFromBody(diff: string): { added?: number; removed?: number } {
+	let added = 0;
+	let removed = 0;
+	for (const row of diff.split("\n")) {
+		if (row[0] === "+") added++;
+		else if (row[0] === "-") removed++;
+	}
+	return { added: added || undefined, removed: removed || undefined };
+}
+
 /** Drop the scheme and any trailing slash so a URL fits a row. */
 const shortUrl = (u: string) => u.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
@@ -467,8 +478,13 @@ const EDIT: Spec = {
 		if (c.row.result?.isError) return ["failed"];
 		if (str(c.details.classification) === "noop") return ["no change"];
 		const metrics = (c.details.metrics ?? {}) as { added_lines?: unknown; removed_lines?: unknown };
-		const added = num(metrics.added_lines);
-		const removed = num(metrics.removed_lines);
+		let added = num(metrics.added_lines);
+		let removed = num(metrics.removed_lines);
+		if (added === undefined && removed === undefined) {
+			// Native edit doesn't send metrics; count +/- rows from the diff body.
+			const diff = str(c.details.diff);
+			if (diff) ({ added, removed } = diffCountsFromBody(diff));
+		}
 		const stat = diffStat(added, removed);
 		if (stat) return [stat];
 		return added !== undefined || removed !== undefined ? ["no change"] : [];
