@@ -331,7 +331,7 @@ export class Memory {
 	): Promise<{ text: string; notes: string[]; noteCount: number; chapters: number; sessions: number; mode: string; tokens: number }> {
 		const all = this.book.chapters([project]);
 		const chapters = all.filter((c) => c.chapter !== JOURNAL);
-		const recent = this.cfg.journal.enabled
+		const recent = this.cfg.journal.enabled && project
 			? this.book
 					.journal(project)
 					.filter((e) => e.sid !== opts.sid)
@@ -344,11 +344,11 @@ export class Memory {
 			const heads = c.sections.map((s) => s.heading);
 			return `- ${c.rel} — ${c.summary || c.title} [${heads.slice(0, 6).join(", ")}${heads.length > 6 ? `, +${heads.length - 6}` : ""}]`;
 		});
-		const journalCount = this.book.journal(project).length;
+		const journalCount = project ? this.book.journal(project).length : 0;
 		if (journalCount) toc.push(`- ${this.book.journalRel(project)} — digests of the last ${journalCount} session${journalCount === 1 ? "" : "s"} (expire after ${this.cfg.journal.ttlDays || "∞"} days)`);
 		const lines = [
 			"<memory>",
-			`Background from your memory book, not a message from the user: notes about the user and this project (${project}), written in earlier sessions. Use what is relevant; do not answer or remark on this block unless the user asks. Dated bullets; newer wins when two disagree. Read a chapter or search with the memory tool (action "history" searches past sessions verbatim); record durable facts with it too.`,
+			`Background from your memory book, not a message from the user: notes about the user${project ? ` and this project (${project})` : ""}, written in earlier sessions. Use what is relevant; do not answer or remark on this block unless the user asks. Dated bullets; newer wins when two disagree. Read a chapter or search with the memory tool (action "history" searches past sessions verbatim); record durable facts with it too.`,
 			"",
 			"Chapters:",
 			...toc.slice(0, 30),
@@ -421,6 +421,10 @@ export class Memory {
 				}
 				// "this repo" is never a fact about the user, whatever scope the model picked.
 				const scope: Scope = op.scope === "user" && !THIS_PROJECT.test(text) ? "user" : "project";
+				if (scope === "project" && !project) {
+					out.push({ op, ok: false, note: "refused: no project here (temp directory)" });
+					continue;
+				}
 				const chapter = kebab(op.chapter || "notes");
 				const section = String(op.section || "Notes").replace(/[#\n]/g, " ").trim().slice(0, 60) || "Notes";
 				const rel = this.book.rel(scope, chapter, project);
@@ -469,7 +473,7 @@ export class Memory {
 				),
 			),
 		].slice(0, 30);
-		const journalOn = this.cfg.journal.enabled && !!opts.session;
+		const journalOn = this.cfg.journal.enabled && !!opts.session && !!project;
 		const digest = journalOn ? (this.book.journal(project).find((e) => e.sid === opts.session?.id)?.bullets ?? []) : [];
 
 		const base = opts.profile === "conversation" ? CONVERSATION_SYSTEM : CODING_SYSTEM;
@@ -531,7 +535,7 @@ export class Memory {
 	 */
 	async expire(project: string, signal?: AbortSignal): Promise<{ expired: number; promoted: Applied[] }> {
 		const ttl = this.cfg.journal.ttlDays;
-		if (!this.cfg.journal.enabled || !ttl) return { expired: 0, promoted: [] };
+		if (!this.cfg.journal.enabled || !ttl || !project) return { expired: 0, promoted: [] };
 		const cutoff = new Date(Date.now() - ttl * 86_400_000).toISOString().slice(0, 10);
 		const due = this.book.journal(project).filter((e) => e.date < cutoff);
 		if (!due.length) return { expired: 0, promoted: [] };

@@ -338,6 +338,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				case "history": {
 					if (!params.query) return reply("history needs a query");
+					if (!scope) return reply("No project here (temp directory): past sessions are searched per project.");
 					const hits = archive.search(params.query, scope, Math.min(Math.max(params.k ?? 4, 1), 10), sessionFile);
 					if (!hits.length) return reply("No past session matches.");
 					return reply(hits.map((h) => `[${h.date} · ${h.file}]\n${h.text}`).join("\n\n---\n\n"));
@@ -443,7 +444,7 @@ export default function (pi: ExtensionAPI) {
 			const all = m.book.chapters();
 			const lines = [
 				`book: ${m.cfg.dir}  (${all.length} chapters total)`,
-				`in scope: ${chapters.length} chapters, ${notes} notes — user + ${scope}`,
+				`in scope: ${chapters.length} chapters, ${notes} notes — ${scope ? `user + ${scope}` : "user only (temp directory, no project)"}`,
 				`llm: ${describeLlm(m.cfg.llm)} · capture ${m.cfg.capture}`,
 				`embed: ${m.cfg.embed.url ? `${m.cfg.embed.model} @ ${m.cfg.embed.url}` : "off (keyword search only)"}${m.index.embedder.lastError ? ` — last error: ${m.index.embedder.lastError}` : ""}`,
 				...(m.cfg.warnings ?? []).map((w) => `⚠ ${w}`),

@@ -29,6 +29,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 export type Scope = "user" | "project";
@@ -99,11 +100,19 @@ function git(args: string[], cwd: string, timeout = 3000): string {
 	return execFileSync("git", args, { cwd, timeout, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
 }
 
+/** Temp directories (smoke tests, throwaway clones) hold nothing worth a project's memory. */
+function isScratch(cwd: string): boolean {
+	const dir = path.resolve(cwd);
+	return ["/tmp", "/var/tmp", os.tmpdir()].some((t) => dir === t || dir.startsWith(`${t}/`));
+}
+
 /**
  * Stable project id: the git remote (the same repo matches on every machine,
  * wherever it is checked out), else the repo root's name, else the directory.
+ * "" in a temp directory: no project there, only the user's chapters.
  */
 export function projectId(cwd: string): string {
+	if (isScratch(cwd)) return "";
 	try {
 		const url = git(["remote", "get-url", "origin"], cwd);
 		if (url) {
