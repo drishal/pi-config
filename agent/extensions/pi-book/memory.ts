@@ -370,10 +370,17 @@ export class Memory {
 			: [];
 		if (!chapters.length && !recent.length) return { text: "", notes: [], noteCount: 0, chapters: 0, sessions: 0, mode: "empty", tokens: 0 };
 
-		const toc = chapters.map((c) => {
-			const heads = c.sections.map((s) => s.heading);
-			return `- ${c.rel} — ${c.summary || c.title} [${heads.slice(0, 6).join(", ")}${heads.length > 6 ? `, +${heads.length - 6}` : ""}]`;
-		});
+		// Project chapters with their sections; the user's chapters (shown in every
+		// project, relevant to few prompts) as names only — matching notes still come below.
+		const toc = chapters
+			.filter((c) => c.scope === "project")
+			.map((c) => {
+				const heads = c.sections.map((s) => s.heading);
+				const summary = c.summary && c.summary !== c.title ? ` — ${c.summary}` : "";
+				return `- ${c.rel}${summary} [${heads.slice(0, 6).join(", ")}${heads.length > 6 ? `, +${heads.length - 6}` : ""}]`;
+			});
+		const userChapters = chapters.filter((c) => c.scope === "user").map((c) => c.chapter);
+		if (userChapters.length) toc.unshift(`- user/: ${userChapters.join(", ")} (read "user/<name>.md")`);
 		const journalCount = project ? this.book.journal(project).length : 0;
 		if (journalCount) toc.push(`- ${this.book.journalRel(project)} — digests of the last ${journalCount} session${journalCount === 1 ? "" : "s"} (expire after ${this.cfg.journal.ttlDays || "∞"} days)`);
 		const lines = [
