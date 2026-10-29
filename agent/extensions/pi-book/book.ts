@@ -423,8 +423,15 @@ export class Book {
 		const i = lines.indexOf(hit.line);
 		if (i < 0) return undefined;
 		this.backup(hit.rel);
-		if (text === undefined) lines.splice(i, 1);
-		else lines[i] = `- ${today()} · ${cleanFact(text)}`;
+		if (text === undefined) {
+			lines.splice(i, 1);
+			// The section's last bullet: drop its heading (and the blank line before it) too.
+			const next = lines[i]?.trim() ?? "";
+			if (lines[i - 1]?.startsWith("## ") && (next === "" || next.startsWith("## "))) {
+				lines.splice(i - 1, 1);
+				if (lines[i - 2]?.trim() === "" && (lines[i - 1] === undefined || lines[i - 1].trim() === "")) lines.splice(i - 2, 1);
+			}
+		} else lines[i] = `- ${today()} · ${cleanFact(text)}`;
 		this.write(hit.rel, lines.join("\n"));
 		return hit.rel;
 	}
