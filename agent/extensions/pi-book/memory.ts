@@ -829,9 +829,10 @@ const CONVERSATION_JOURNAL_RULES = `Second tier — the session journal: a diges
 - It REPLACES the digest so far; reply "journal": null only for pure small talk.`;
 
 const DEDUPE_SYSTEM = `Each item pairs a new memory note with the stored note most similar to it. For each, decide:
-- "same": the new note says what the stored one already says (reworded, or less specific)
-- "newer": the same subject, and the new note changes, corrects or adds detail to the stored one, so it should replace it
-- "different": a different fact, even if about the same topic — both are kept
+- "same": every specific in the new note (names, numbers, paths, commands, items) is already in the stored note — it adds nothing
+- "newer": both describe the same thing, and the new note keeps everything the stored one says while changing or adding to it, so it can replace it
+- "different": anything else — another fact on the same topic, or a note with a specific the stored one lacks that cannot replace it. Both are kept.
+When unsure, answer "different": a duplicate costs a line, a wrong "same" loses a fact.
 Reply with JSON only, one verdict per item in order: {"verdicts": ["same", "newer", "different", …]}`;
 
 const PROMOTE_SYSTEM = `Journal entries from a coding agent's past sessions are about to expire. Record as long-term notes only what is still a lasting fact: user preferences, project decisions and why, conventions, gotchas, commands that work. Skip progress, finished tasks and anything the notes already cover. Never turn a Done: or Tried: bullet into a preference of the user. Usually there is nothing.
