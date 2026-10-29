@@ -2,7 +2,7 @@
   "theme": "gruvbox-material",
   "packages": [
     "npm:@capdiem/pi-ask-user",
-    "npm:@gamaraan/todos-tool",
+    "npm:@ssk_dev/rpiv-todo-lean",
     "npm:@narumitw/pi-btw",
     "npm:@narumitw/pi-plan-mode",
     "npm:@vanillagreen/pi-background-tasks",
