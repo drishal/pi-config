@@ -590,11 +590,16 @@ export class Memory {
 			date?: string;
 			/** The session this transcript belongs to; without one there is no journal digest. */
 			session?: { id: string; title: string };
+			/** false: a run with only an acknowledgement — rewrite the digest, leave the notes alone. */
+			notes?: boolean;
 		} = {},
 	): Promise<{ applied: Applied[]; journal?: string[]; model: string; raw: string }> {
-		const chapters = this.book.chapters([project]).filter((c) => c.chapter !== JOURNAL);
+		const notesOn = opts.notes !== false;
+		const chapters = notesOn ? this.book.chapters([project]).filter((c) => c.chapter !== JOURNAL) : [];
 		const toc = chapters.map((c) => `${c.scope === "user" ? "user" : "project"}:${c.chapter} — ${c.sections.map((s) => s.heading).join(" | ")}`);
-		const { hits } = await this.search(transcript.slice(-4000), project, 6, opts.signal).catch(() => ({ hits: [] as Hit[] }));
+		const { hits } = notesOn
+			? await this.search(transcript.slice(-4000), project, 6, opts.signal).catch(() => ({ hits: [] as Hit[] }))
+			: { hits: [] as Hit[] };
 		const related = [
 			...new Set(
 				hits.flatMap((h) =>
@@ -611,15 +616,24 @@ export class Memory {
 		const base = opts.profile === "conversation" ? CONVERSATION_SYSTEM : CODING_SYSTEM;
 		const rules = opts.profile === "conversation" ? CONVERSATION_JOURNAL_RULES : JOURNAL_RULES;
 		const system = journalOn ? `${base}\n\n${rules.replace("{max}", String(this.cfg.journal.maxBullets))}` : base;
+		const reply = notesOn
+			? journalOn
+				? 'Reply with JSON only: {"ops": [...], "journal": [...] or null}'
+				: 'Reply with JSON only: {"ops": [...]}'
+			: 'Do not write notes. Reply with JSON only: {"journal": [...] or null}';
 		const prompt = [
 			`Today: ${opts.date ?? today()}`,
 			`Project id: ${project}`,
-			"",
-			"Existing chapters (scope:chapter — sections):",
-			toc.length ? toc.join("\n") : "(none yet)",
-			"",
-			"Existing notes that may overlap:",
-			related.length ? related.join("\n") : "(none)",
+			...(notesOn
+				? [
+						"",
+						"Existing chapters (scope:chapter — sections):",
+						toc.length ? toc.join("\n") : "(none yet)",
+						"",
+						"Existing notes that may overlap:",
+						related.length ? related.join("\n") : "(none)",
+					]
+				: []),
 			...(journalOn
 				? ["", "This session's journal digest so far:", digest.length ? digest.map((b) => b.replace(/^- \d{4}-\d{2}-\d{2} · /, "- ")).join("\n") : "(empty)"]
 				: []),
@@ -628,11 +642,11 @@ export class Memory {
 			transcript,
 			"</conversation>",
 			"",
-			journalOn ? 'Reply with JSON only: {"ops": [...], "journal": [...] or null}' : 'Reply with JSON only: {"ops": [...]}',
+			reply,
 		].join("\n");
 
 		const { text, model } = await this.llm(system, prompt, { label: "memory capture", signal: opts.signal });
-		let ops = parseOps(text);
+		let ops = notesOn ? parseOps(text) : [];
 		if (opts.forceScope) ops = ops.map((o) => (o.op === "add" ? { ...o, scope: opts.forceScope as Scope } : o));
 		// Facts the session found may be kept, but "the user wants …" only on the user's words.
 		const refused: Applied[] = [];

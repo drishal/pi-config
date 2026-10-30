@@ -81,9 +81,10 @@ function textOf(content: Msg["content"]): string {
 }
 
 /** User and assistant text of an agent run, tool calls as names only. */
-function transcriptOf(messages: unknown[]): { text: string; userChars: number } {
+function transcriptOf(messages: unknown[]): { text: string; userChars: number; toolCalls: number } {
 	const lines: string[] = [];
 	let userChars = 0; // excluding acknowledgements
+	let toolCalls = 0;
 	for (const m of messages as Msg[]) {
 		const clip = (s: string) => (s.length > MESSAGE_CHARS ? `${s.slice(0, MESSAGE_CHARS)} …` : s);
 		if (m.role === "user") {
@@ -95,11 +96,14 @@ function transcriptOf(messages: unknown[]): { text: string; userChars: number } 
 			const t = textOf(m.content).trim();
 			const tools = Array.isArray(m.content) ? m.content.filter((p) => p?.type === "toolCall").map((p) => p.name) : [];
 			if (t) lines.push(`Assistant: ${clip(t)}`);
-			if (tools.length) lines.push(`[used tools: ${[...new Set(tools)].join(", ")}]`);
+			if (tools.length) {
+				toolCalls += tools.length;
+				lines.push(`[used tools: ${[...new Set(tools)].join(", ")}]`);
+			}
 		}
 	}
 	const text = lines.join("\n");
-	if (text.length <= TRANSCRIPT_CHARS) return { text, userChars };
+	if (text.length <= TRANSCRIPT_CHARS) return { text, userChars, toolCalls };
 	// Too long: keep every user line — the request, corrections and preferences
 	// come first in a run and would be the first cut — then the newest of the rest.
 	const isUser = (l: string) => l.startsWith("User: ");
@@ -118,7 +122,7 @@ function transcriptOf(messages: unknown[]): { text: string; userChars: number } 
 		else if (out.at(-1) !== "…") out.push("…");
 	});
 	const kept = out.join("\n");
-	return { text: kept.length > TRANSCRIPT_CHARS ? `…${kept.slice(-TRANSCRIPT_CHARS)}` : kept, userChars };
+	return { text: kept.length > TRANSCRIPT_CHARS ? `…${kept.slice(-TRANSCRIPT_CHARS)}` : kept, userChars, toolCalls };
 }
 
 function summarize(applied: Applied[]): string {
@@ -247,13 +251,16 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_end", async (event, ctx) => {
 		const m = mem();
 		if (m.cfg.capture !== "auto") return;
-		const { text, userChars } = transcriptOf(event.messages as unknown[]);
-		if (userChars < 12) return;
+		const { text, userChars, toolCalls } = transcriptOf(event.messages as unknown[]);
 		const scope = project || projectId(ctx.cwd);
+		// An acknowledgement ("go ahead") still did work when it used tools: keep
+		// the digest current, but never turn such a run into notes.
+		const notes = userChars >= 12;
+		if (!notes && (!toolCalls || !m.cfg.journal.enabled || !scope || !session)) return;
 		// Serialised and in the background: the next prompt never waits on it.
 		pending = pending.then(async () => {
 			try {
-				const r = await m.capture(text, scope, { session: session?.title ? session : undefined });
+				const r = await m.capture(text, scope, { session: session?.title ? session : undefined, notes });
 				const ok = r.applied.filter((a) => a.ok);
 				note(
 					`capture via ${r.model}: ${ok.length} applied${r.applied.length > ok.length ? `, ${r.applied.length - ok.length} refused` : ""}${r.journal ? `, journal ${r.journal.length} bullets` : ""}${r.applied.length ? `\n${summarize(r.applied)}` : ""}`,
