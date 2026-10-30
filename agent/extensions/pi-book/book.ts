@@ -404,20 +404,20 @@ export class Book {
 	}
 
 	/**
-	 * Replace (or with `text` undefined, delete) the bullet whose text contains
-	 * `old`. Returns the chapter touched, or undefined when nothing matched.
+	 * The bullets an edit refers to: the exact one when it exists, else every
+	 * bullet that contains `old` — so a short quote that fits several notes is
+	 * refused and listed, never resolved to whichever came first.
 	 */
-	/** The bullet an edit refers to: exact text first, else the first that contains it. */
-	find(old: string, projects: string[]): { rel: string; line: string; norm: string } | undefined {
+	resolve(old: string, projects: string[]): Array<{ rel: string; line: string; norm: string }> {
 		const target = normalize(cleanFact(old));
-		if (!target) return undefined;
+		if (!target) return [];
 		const all = this.bullets(projects);
-		return all.find((b) => b.norm === target) ?? all.find((b) => b.norm.includes(target));
+		const exact = all.find((b) => b.norm === target);
+		return exact ? [exact] : all.filter((b) => b.norm.includes(target));
 	}
 
-	change(old: string, text: string | undefined, projects: string[]): string | undefined {
-		const hit = this.find(old, projects);
-		if (!hit) return undefined;
+	/** Replace (or with `text` undefined, delete) one resolved bullet; the chapter touched. */
+	change(hit: { rel: string; line: string }, text: string | undefined): string | undefined {
 		const raw = this.read(hit.rel) ?? "";
 		const lines = raw.split("\n");
 		const i = lines.indexOf(hit.line);

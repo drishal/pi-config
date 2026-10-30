@@ -555,11 +555,20 @@ export class Memory {
 				out.push({ op, ok: added, note: added ? `${rel} › ${section}` : "already recorded" });
 			} else if (op.op === "update" && !text) {
 				out.push({ op, ok: false, note: "refused: empty update" });
-			} else if (op.op === "update" && overlap(this.book.find(String(op.old ?? ""), [project])?.norm ?? "", text) >= REWORD) {
-				out.push({ op, ok: false, note: "refused: only rewords the note" });
 			} else if (op.op === "update" || op.op === "delete") {
-				const rel = this.book.change(String(op.old ?? ""), op.op === "update" ? text : undefined, [project]);
-				out.push({ op, ok: !!rel, note: rel ?? "no matching note" });
+				const hits = this.book.resolve(String(op.old ?? ""), [project]);
+				if (!hits.length) out.push({ op, ok: false, note: "no matching note" });
+				else if (hits.length > 1)
+					out.push({
+						op,
+						ok: false,
+						note: `refused: ${hits.length} notes contain that — quote one in full:\n${hits.map((h) => `  ${h.rel} › ${cleanFact(h.line).slice(0, 120)}`).join("\n")}`,
+					});
+				else if (op.op === "update" && overlap(hits[0].norm, text) >= REWORD) out.push({ op, ok: false, note: "refused: only rewords the note" });
+				else {
+					const rel = this.book.change(hits[0], op.op === "update" ? text : undefined);
+					out.push({ op, ok: !!rel, note: rel ?? "no matching note" });
+				}
 			}
 		}
 		if (out.some((a) => a.ok)) this.book.writeIndex();
