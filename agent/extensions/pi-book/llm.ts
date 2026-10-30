@@ -134,16 +134,38 @@ function viaMicrocall(cfg: LlmConfig): Complete {
 
 type Sdk = typeof import("@earendil-works/pi-coding-agent");
 
-/** pi's installed package, found through the `pi` on PATH — the CLI has no node_modules of its own. */
-async function loadSdk(): Promise<Sdk> {
-	const override = process.env.PI_SDK_PATH;
-	let dir = override;
-	if (!dir) {
-		const bin = execFileSync("sh", ["-c", "command -v pi"], { encoding: "utf-8" }).trim();
+/** The package root behind the `pi` on PATH, or undefined when that is a launcher script. */
+function sdkDirOnPath(): string | undefined {
+	try {
+		const bin = execFileSync("sh", ["-c", "command -v pi"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+		if (!bin) return undefined;
 		let p = fs.realpathSync(bin);
-		while (p !== path.dirname(p) && !fs.existsSync(path.join(p, "package.json"))) p = path.dirname(p);
-		dir = p;
+		while (!fs.existsSync(path.join(p, "package.json"))) {
+			const up = path.dirname(p);
+			if (up === p) return undefined;
+			p = up;
+		}
+		return p;
+	} catch {
+		return undefined;
 	}
+}
+
+/**
+ * pi 1.4's managed install runs a shell launcher, not a package: the SDK it
+ * runs is the release named by <agent>/install/current-version.
+ */
+function managedSdkDir(agentDir: string): string {
+	const root = process.env.PI_MANAGED_INSTALL_ROOT ?? path.join(agentDir, "install");
+	const version = fs.readFileSync(path.join(root, "current-version"), "utf-8").trim();
+	const dir = path.join(root, "releases", version, "node_modules", "@earendil-works", "pi-coding-agent");
+	if (!fs.existsSync(path.join(dir, "package.json"))) throw new Error(`pi's SDK is not at ${dir}; set PI_SDK_PATH to its package directory`);
+	return dir;
+}
+
+/** pi's installed package: PI_SDK_PATH, else the `pi` on PATH, else the managed release. */
+async function loadSdk(agentDir: string): Promise<Sdk> {
+	const dir = process.env.PI_SDK_PATH ?? sdkDirOnPath() ?? managedSdkDir(agentDir);
 	return (await import(pathToFileURL(path.join(dir, "dist", "index.js")).href)) as Sdk;
 }
 
@@ -164,7 +186,7 @@ function standalonePi(cfg: LlmConfig, agentDir: string): Complete {
 	let ready: Promise<{ sdk: Sdk; runtime: unknown }> | undefined;
 	const init = () => {
 		ready ??= (async () => {
-			const sdk = await loadSdk();
+			const sdk = await loadSdk(agentDir);
 			const runtime = await sdk.ModelRuntime.create({
 				authPath: path.join(agentDir, "auth.json"),
 				modelsPath: path.join(agentDir, "models.json"),
