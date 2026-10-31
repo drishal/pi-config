@@ -23,9 +23,13 @@
  * extensions before packages — so "00-" runs before any factory that reads
  * process.env. Keep the prefix.
  *
- * Format: KEY=value per line; `#` comments, an optional `export ` prefix,
- * and "double" (with \n \t escapes) or 'single' (literal) quotes. No ${…}
- * interpolation. Values are never logged; /env lists names and sources only.
+ * Format: KEY=value per line; `#` comments, an optional `export ` prefix, and
+ * "double" (with \n \t \$ escapes) or 'single' (literal) quotes. Values
+ * interpolate the way pi's own models.json does: $NAME and ${NAME} come from the
+ * environment, $$ is a literal $ — unquoted or in "double quotes" only, so a
+ * 'single-quoted' value keeps its dollars. That lets a committed file point at
+ * $HOME instead of one user's absolute path. Values are never logged; /env
+ * lists names and sources only.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
@@ -36,6 +40,47 @@ const AGENT_DIR = process.env.PI_CODING_AGENT_DIR ?? `${process.env.HOME}/.pi/ag
 const FILES = ["pi.env", ".env"];
 const MARKER = "PI_ENV_FROM_FILES";
 
+/**
+ * One `KEY=` value: quoting, escapes and pi's $NAME interpolation in a single
+ * pass, so an expanded value is never rescanned (the shell does not either).
+ */
+function resolve(raw: string): string {
+	if (raw.startsWith("'")) {
+		const end = raw.lastIndexOf("'");
+		return end > 0 ? raw.slice(1, end) : raw.slice(1);
+	}
+	const double = raw.startsWith('"');
+	const end = raw.lastIndexOf('"');
+	const body = double
+		? end > 0
+			? raw.slice(1, end)
+			: raw.slice(1)
+		: raw.replace(/\s+#.*$/, "").trim(); // trailing comment on an unquoted value
+	let out = "";
+	for (let i = 0; i < body.length; i++) {
+		const ch = body[i];
+		if (ch === "$") {
+			if (body[i + 1] === "$") {
+				out += "$";
+				i++;
+				continue;
+			}
+			const m = /^\{([A-Za-z_][A-Za-z0-9_]*)\}|^([A-Za-z_][A-Za-z0-9_]*)/.exec(body.slice(i + 1));
+			if (m) {
+				out += process.env[m[1] ?? m[2]] ?? "";
+				i += m[0].length;
+				continue;
+			}
+		} else if (ch === "\\" && double && i + 1 < body.length) {
+			const next = body[++i];
+			out += next === "n" ? "\n" : next === "t" ? "\t" : next;
+			continue;
+		}
+		out += ch;
+	}
+	return out;
+}
+
 function parse(text: string): Map<string, string> {
 	const vars = new Map<string, string>();
 	for (const raw of text.split(/\r?\n/)) {
@@ -43,17 +88,7 @@ function parse(text: string): Map<string, string> {
 		if (!line || line.startsWith("#")) continue;
 		const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
 		if (!m) continue;
-		let value = m[2];
-		if (value.startsWith('"')) {
-			const end = value.lastIndexOf('"');
-			value = (end > 0 ? value.slice(1, end) : value.slice(1)).replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"');
-		} else if (value.startsWith("'")) {
-			const end = value.lastIndexOf("'");
-			value = end > 0 ? value.slice(1, end) : value.slice(1);
-		} else {
-			value = value.replace(/\s+#.*$/, "").trim(); // trailing comment on an unquoted value
-		}
-		vars.set(m[1], value);
+		vars.set(m[1], resolve(m[2]));
 	}
 	return vars;
 }

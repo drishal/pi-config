@@ -260,7 +260,7 @@ other extension runs (the `00-` prefix makes it load first — keep it):
 
 | File | Scope | Holds |
 |---|---|---|
-| `agent/pi.env` | tracked in this repo | non-secret switches (none needed at the moment) |
+| `agent/pi.env` | tracked in this repo | non-secret switches (`PI_DIET`, `PI_HASHLINE_DIR`) |
 | `~/.pi/agent/.env` | this machine only, never committed (not on the allowlist) | per-machine values and secrets |
 
 `.env` overrides `pi.env`; a variable exported in your shell overrides both, so
@@ -269,6 +269,9 @@ pi loaded (and a bash tool, a tmux server started from pi, or a nested pi
 inherited) are reloaded from the files rather than treated as your overrides.
 `/env` lists what was loaded from where — names only, never values. This
 replaces setting these in a shell profile, so non-Nix machines get them too.
+Values interpolate pi's way — `$NAME` and `${NAME}` from the environment, `$$`
+for a literal `$`, single quotes kept literal — which is what lets the tracked
+`PI_HASHLINE_DIR=$HOME/.pi/agent/pi-hashline-edit-pro` work on any machine.
 
 ## 5. MCP servers (`mcp.json`) — *suggestions, not a manifest*
 

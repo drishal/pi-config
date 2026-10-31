@@ -127,7 +127,10 @@ here is still read (and `pi-book.json` wins).
 
 `KEY=value` files loaded by `00-env.ts` before any other extension; `.env`
 overrides `pi.env`, and your shell overrides both. `pi.env` is committed, so
-secrets never go there. It sets nothing at the moment.
+secrets never go there. Values expand `$NAME` and `${NAME}` from the
+environment (`$$` is a literal `$`) unless single-quoted, so a shared line can
+point at `$HOME` instead of one user's absolute path. It holds `PI_DIET` and
+`PI_HASHLINE_DIR` today.
 
 Env switches read by our extensions:
 
