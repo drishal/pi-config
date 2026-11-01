@@ -190,6 +190,8 @@ function blocksOf(parts: unknown[], width: number, keepThinking: boolean): Block
 		// A spacer between the prompt and the answer says nothing; this
 		// renderer owns the gaps between blocks.
 		if (lines.length === 0) continue;
+		// pi's Ctrl+T toast ("Thinking blocks: hidden/visible") is status, not turn content.
+		if (lines.length === 1 && /^Thinking blocks: (hidden|visible)$/.test(lines[0].replace(/\x1b\[[0-9;]*m/g, "").trim())) continue;
 		closeActivity();
 		blocks.push({ kind: "other", comp, lines });
 	}
