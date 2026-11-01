@@ -135,7 +135,7 @@ export type RowOpts = {
  * indented `└` continuation:
  *
  *   ● Read ~/.pi/agent/AGENTS.md:1-12
- *     └ 12 lines
+ *     └ 12
  *
  * A *running* call instead puts the whole command on `└ $`, wrapped rather
  * than truncated, so you can actually read what is executing:
@@ -220,10 +220,13 @@ function rowLinesUncached(row: ToolRow, theme: ThemeLike, width: number, opts: R
 		return [...noteLine, fit(line, width)];
 	}
 
-	// Only the fact that names the failure is red; a line count stays quiet.
-	const paint = (fact: string) =>
-		/^(failed|exit [1-9])/.test(fact) ? failText(theme, fact) : factText(theme, fact);
-
+	// Failures are red and diffstats use their diff colours; a line count stays quiet.
+	const paint = (fact: string) => {
+		if (/^(failed|exit [1-9])/.test(fact)) return failText(theme, fact);
+		if (/^\+\d+$/.test(fact)) return paintRole(theme, "diffAdded", fact);
+		if (/^-\d+$/.test(fact)) return paintRole(theme, "diffRemoved", fact);
+		return factText(theme, fact);
+	};
 	if (tree) {
 		// Facts close the call line. Right-align them when the row is wide
 		// enough that the gap reads as a column; otherwise keep them adjacent.
@@ -419,7 +422,7 @@ export function highlightedCommand(cmd: string, theme: ThemeLike, width: number)
  *   │ $ strings -n 4 ~/.local/bin/omp | sed -n '…' │
  *   ├─── Output ───────────────────────────────────┤
  *   │   type: "input_text",                        │
- *   ╰─── 40 lines ─────────────────────────────────╯
+ *   ╰─── 40 ─────────────────────────────────╯
  *
  * Border colours follow omp's output-block states: dim when done, accent
  * while running, error on failure.
@@ -483,7 +486,20 @@ export function framedLines(comp: unknown, row: ToolRow, theme: ThemeLike, width
 			? ["running…", elapsedLabel(start)]
 			: ["running…"]
 		: facts;
-	out.push(status.length > 0 ? labelled("╰", status.join(" · "), "╯", borderSlot === "rule" ? "fact" : "fail") : g(`╰${"─".repeat(width - 2)}╯`));
+	if (status.length === 0) {
+		out.push(g(`╰${"─".repeat(width - 2)}╯`));
+	} else {
+		// Bottom border keeps per-fact colours, so the diffstat reads green/red here too.
+		const paintStatus = (fact: string) => {
+			if (/^(failed|exit [1-9])/.test(fact)) return paintRole(theme, "fail", fact);
+			if (/^\+\d+$/.test(fact)) return paintRole(theme, "diffAdded", fact);
+			if (/^-\d+$/.test(fact)) return paintRole(theme, "diffRemoved", fact);
+			return paintRole(theme, borderSlot === "rule" ? "fact" : "fail", fact);
+		};
+		const painted = ` ${status.map(paintStatus).join(factText(theme, " · "))} `;
+		const l = truncateToWidth(painted, Math.max(0, width - 5));
+		out.push(g("╰───") + l + g("─".repeat(Math.max(0, width - 5 - visibleWidth(l)))) + g("╯"));
+	}
 
 	// Images keep pi's own layout, below the frame.
 	out.push(...rowImages(row, width));

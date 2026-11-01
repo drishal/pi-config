@@ -6,9 +6,9 @@
  *   ❯ In a batch, launch a few read/grep commands.
  *
  *   Let me check how pi loads extensions…
- *   ├─ ● Read    agent/extensions/eval/index.ts   48 lines
- *   ├─ ● Run     $ ls ~/.pi/agent/extensions        12 lines
- *   └─ ● Search  "index.ts" in agent/extensions     4 results
+ *   ├─ ● Read    agent/extensions/eval/index.ts   48
+ *   ├─ ● Run     $ ls ~/.pi/agent/extensions        12
+ *   └─ ● Search  "index.ts" in agent/extensions     4
  *
  *   ◇ Thinking 2.1s ~140 tokens
  *      A directory extension is loaded through its index.ts, so the entry

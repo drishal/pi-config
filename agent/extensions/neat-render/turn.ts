@@ -4,8 +4,8 @@
  *   ❯ Read the container patch, then mark the answer.
  *
  *   Let me read the container patch first.
- *   ├─ ● Read   agent/extensions/neat-render/turn.ts   525 lines
- *   └─ ● Search "chatContainer" in modes/interactive     3 results
+ *   ├─ ● Read   agent/extensions/neat-render/turn.ts   525
+ *   └─ ● Search "chatContainer" in modes/interactive     3
  *
  *   ◇ Thinking 2.1s
  *      A turn runs from one prompt to the next, so the fold has to live in
@@ -585,9 +585,9 @@ function sigmaFooter(
  * Two or more calls fired together hang off a shared tree, each call on one
  * line with its outcome in a right-hand column:
  *
- *   ├─ ● Read    agent/skills/pi-config-sync/SKILL.md   115 lines
- *   ├─ ● Run     $ ls -la ~/dotfiles/config/pi/           14 lines
- *   └─ ● Search  "defaultTools" in agent/settings.json    18 results
+ *   ├─ ● Read    agent/skills/pi-config-sync/SKILL.md   115
+ *   ├─ ● Run     $ ls -la ~/dotfiles/config/pi/           14
+ *   └─ ● Search  "defaultTools" in agent/settings.json    18
  *
  * The tree is the summary: how many is the branch count, and the per-call
  * outcomes sit on their rows. What the rows cannot say — turns' totals,

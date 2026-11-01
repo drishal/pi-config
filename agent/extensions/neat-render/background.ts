@@ -24,7 +24,6 @@ import {
 	inset,
 	liveText,
 	noteText,
-	plural,
 	subjectText,
 	verbText,
 } from "./style.ts";
@@ -132,7 +131,7 @@ export function installBackgroundMessages(pi: ExtensionAPI): void {
 				const title = taskDisplayName(task);
 				const outputLineCount =
 					details.eventType === "output" ? details.outputTail.trimEnd().split(/\r?\n/).length : 0;
-				const outputLines = outputLineCount > 0 ? factText(t, ` · ${plural(outputLineCount, "line")}`) : "";
+				const outputLines = outputLineCount > 0 ? factText(t, ` · ${outputLineCount}`) : "";
 				const hint = options.expanded ? "" : factText(t, " · ctrl+o");
 				const head = fit(
 					`${pad}${icon} ${verbText(t, "Bg")} ${subjectText(t, task.id)} ${factText(t, eventWord)}` +

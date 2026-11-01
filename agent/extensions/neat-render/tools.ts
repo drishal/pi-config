@@ -132,13 +132,13 @@ export function diffPreview(diff: string): string[] {
 	return out;
 }
 
-/** "Added 35 lines, removed 2 lines" — Claude Code's phrasing. */
-export function diffStat(added?: number, removed?: number): string | undefined {
-	const parts: string[] = [];
-	if (added) parts.push(`Added ${added} line${added === 1 ? "" : "s"}`);
-	if (removed) parts.push(`removed ${removed} line${removed === 1 ? "" : "s"}`);
-	if (parts.length === 0) return undefined;
-	return parts.join(", ");
+/** Git-style diffstat: "+35 -2" — the +/- sign carries the meaning, colour is redundant. */
+export function diffStat(added?: number, removed?: number): string[] | undefined {
+	const out: string[] = [];
+	if (added) out.push(`+${added}`);
+	if (removed) out.push(`-${removed}`);
+	if (out.length === 0) return undefined;
+	return out;
 }
 
 /** Count included/excluded lines from a diff body when the tool doesn't send metrics. */
@@ -184,7 +184,7 @@ function mutatePath(c: Ctx): string | undefined {
 	return c.path ?? (parts.length > 2 ? parts[1] : undefined);
 }
 
-const lineFacts = (c: Ctx) => (c.lines ? [plural(c.lines, "line")] : []);
+const lineFacts = (c: Ctx) => (c.lines ? [`${c.lines}`] : []);
 
 /** Bodiless failure marker, shared by every tool that reports `isError`. */
 function failedFact(c: Ctx): string[] {
@@ -232,7 +232,7 @@ const SEARCH: Record<string, Spec> = {
 			const scope = c.path ? ` in ${shortPath(c.path)}` : "";
 			return `${q}${scope}`;
 		},
-		facts: (c) => (c.lines ? [`${c.lines} ${c.lines === 1 ? "result" : "results"}`] : []),
+		facts: (c) => (c.lines ? [`${c.lines}`] : []),
 	},
 };
 
@@ -260,7 +260,7 @@ const BG_TASK_SPEC: Spec = {
 		const task = c.details?.task as BackgroundTaskSnapshot | undefined;
 		if (!task) return [];
 		const facts = [bgTaskStatusFact(task)];
-		if (a === "log" && c.lines) facts.push(plural(c.lines, "line"));
+		if (a === "log" && c.lines) facts.push(`${c.lines}`);
 		return facts;
 	},
 	hidden: (c) => {
@@ -353,7 +353,7 @@ const REGISTRY: Record<string, Spec> = {
 		},
 		facts: (c) => {
 			const facts = failedFact(c);
-			if (c.lines) facts.push(plural(c.lines, "line"));
+			if (c.lines) facts.push(`${c.lines}`);
 			const ms = num(c.details.durationMs);
 			if (ms !== undefined && ms >= 1000) facts.push(`${(ms / 1000).toFixed(1)}s`);
 			return facts;
@@ -428,7 +428,7 @@ codemode: {
 		const calls = codemodeCalls(c);
 		if (calls.length > 0) facts.push(plural(calls.length, "call"));
 		const lines = countLines(codemodeOutput(c));
-		if (lines > 0) facts.push(plural(lines, "line"));
+		if (lines > 0) facts.push(`${lines}`);
 		return facts;
 	},
 },
@@ -446,8 +446,7 @@ codemode: {
 		facts: (c) => {
 			if (c.row.result?.isError) return ["failed"];
 			const metrics = (c.details.metrics ?? {}) as { added_lines?: unknown };
-			const stat = diffStat(num(metrics.added_lines), undefined);
-			return stat ? [stat] : [];
+			return diffStat(num(metrics.added_lines), undefined) ?? [];
 		},
 		body: (c) => {
 			const diff = str(c.details.diff);
@@ -485,8 +484,8 @@ const EDIT: Spec = {
 			const diff = str(c.details.diff);
 			if (diff) ({ added, removed } = diffCountsFromBody(diff));
 		}
-		const stat = diffStat(added, removed);
-		if (stat) return [stat];
+		const stats = diffStat(added, removed);
+		if (stats) return stats;
 		return added !== undefined || removed !== undefined ? ["no change"] : [];
 	},
 	body: (c) => {
