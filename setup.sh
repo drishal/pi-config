@@ -5,6 +5,13 @@
 #   git clone <repo> ~/.pi && ~/.pi/setup.sh     a fresh machine
 #   ~/.pi/setup.sh                              re-run any time; idempotent
 #   ~/.pi/setup.sh --check                      report what is missing, change nothing
+#   ~/.pi/setup.sh [--auth] [--agents] --export DIR
+#                                               write a portable snapshot of this pi install
+#                                               to DIR/pi-export-YYYYmmdd-HHMMSS.zip; unzip it
+#                                               into ~/.pi on another machine and pi resumes
+#                                               there. --auth includes the API keys (the zip
+#                                               then logs in as you; treat it like a
+#                                               password). --agents also packs ~/.agents.
 #
 # Settings are split: agent/settings.shared.json is the tracked, hand-picked
 # part; agent/settings.json is pi's own private file, which it rewrites on every
@@ -19,13 +26,87 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PI="${PI_CODING_AGENT_DIR:-$ROOT/agent}"
-CHECK=0
-[ "${1:-}" = "--check" ] && CHECK=1
+CHECK=0; EXPORT_DIR=""; INCLUDE_AUTH=0; INCLUDE_AGENTS=0
+[ "${1:-}" = "--check" ] && { CHECK=1; shift; }
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--auth)   INCLUDE_AUTH=1 ;;   # also pack agent/auth.json, secrets/, agent/.env, agent/models-store.json
+		--agents) INCLUDE_AGENTS=1 ;; # also pack ~/.agents (skills shared with other harnesses) under _agents/, restore to ~/.agents
+		--export) shift; EXPORT_DIR="${1:-}"; [ -n "$EXPORT_DIR" ] || { say "error: --export needs a directory" >&2; exit 1; } ;;
+		*) say "error: unknown option: $1 (see the header of this script)" >&2; exit 1 ;;
+	esac
+	shift
+done
 
 say() { printf '%s\n' "$*"; }
 ok()  { printf '  ok      %s\n' "$*"; }
 act() { printf '  %s %s\n' "$([ $CHECK -eq 1 ] && echo 'MISSING' || echo "${VERB:-set}    ")" "$*"; }
 
+
+# --- portable export (--export) ------------------------------------------
+# A copy of this whole ~/.pi, meant for another machine: unzip it there and
+# pi picks up where this machine left off — sessions, skills, new extensions,
+# memories, the npm packages, and the pi runtime itself all travel.
+# Secrets do NOT, by default: --auth adds agent/auth.json, secrets/, agent/.env
+# and agent/models-store.json. A zip made with --auth IS your login: treat it
+# like a password, keep it on media you control, delete it after the move.
+# Shallow prunes only: .git, pi's crash logs, all but the current runtime
+# release, *.tmp/*.bak debris; nothing pi reads. Needs Info-ZIP (zip -y stores
+# the runtime's symlinks: npm .bin shims resolve through them).
+if [ -n "$EXPORT_DIR" ]; then
+	[ $CHECK -eq 1 ] && { say "error: --export and --check do not combine" >&2; exit 1; }
+	for c in zip git; do command -v "$c" >/dev/null || { say "error: $c is not on PATH" >&2; exit 1; }; done
+	mkdir -p "$EXPORT_DIR" || exit 1
+	EXPORT_DIR="$(cd "$EXPORT_DIR" && pwd)"
+	STAGE="$(mktemp -d)"
+	trap 'rm -rf "$STAGE"' EXIT
+	say "export: collecting files (sessions, skills, extensions, memories, packages, runtime) …"
+	EXC=(--exclude='/.git/'
+	    --exclude='agent/*.log' --exclude='agent/themes/stylix.yaml'
+	    --exclude='*.tmp' --exclude='*.bak'
+	    --exclude='agent/npm/node_modules/.cache')
+	cur="$(cat "$ROOT/agent/install/current-version" 2>/dev/null)"
+	for d in "$ROOT"/agent/install/releases/*/; do
+		[ "$(basename "$d")" = "$cur" ] || EXC+=(--exclude="agent/install/releases/$(basename "$d")")
+	done
+	[ $INCLUDE_AUTH -eq 0 ] && EXC+=(--exclude='agent/auth.json' --exclude='agent/.env' --exclude='agent/models-store.json' --exclude='secrets')
+	rsync -a "${EXC[@]}" -- "$ROOT/" "$STAGE/pi/"
+	# ~/.agents is outside ~/.pi (skills shared with other harnesses); with
+	# --agents it travels in the zip as _agents/, unzip to ~/.agents.
+	if [ $INCLUDE_AGENTS -eq 1 ] && [ -d "$HOME/.agents" ]; then
+		mkdir -p "$STAGE/pi/_agents"
+		tar -C "$HOME" --exclude='.agents/skills/*/.git' -cf - .agents | tar -C "$STAGE/pi/_agents" -xf - --strip-components=1
+	fi
+	mkdir -p "$STAGE/pi/secrets"
+	{
+		say "exported: $(date -u +%Y-%m-%dT%H:%M:%SZ)   from: $(id -un)@$(hostname) ($HOME)"
+		if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+			say "repo:     $(git -C "$ROOT" remote get-url origin 2>/dev/null || echo '<no origin>') @ $(git -C "$ROOT" rev-parse --short HEAD)"
+			[ -n "$(git -C "$ROOT" status --porcelain)" ] && say "          (working tree had uncommitted changes; the zip has the tree, not a commit)"
+		else
+			say "repo:     this ~/.pi is not a git checkout"
+		fi
+		if [ $INCLUDE_AUTH -eq 1 ]; then
+			say "auth:     INCLUDED — this zip logs in as you (agent/auth.json, secrets/, agent/.env, models-store.json)"
+		else
+			say "auth:     NOT included; pi will ask for the LiteLLM key on first run (or copy agent/auth.json by hand)"
+		fi
+		[ $INCLUDE_AGENTS -eq 1 ] && say "agents:   ~/.agents included as _agents/ in the zip (restore to ~/.agents)"
+	} > "$STAGE/pi/EXPORT-INFO.txt"
+	OUT="$EXPORT_DIR/pi-export-$(date +%Y%m%d-%H%M%S).zip"
+	[ -e "$OUT" ] && { say "error: $OUT already exists" >&2; exit 1; }
+	(cd "$STAGE/pi" && zip -qry "$OUT" .)
+	if [ $INCLUDE_AUTH -eq 1 ]; then
+		say "  WARNING  $OUT contains your keys; anyone with it is logged in as you — keep it on media you control, delete when done" >&2
+	fi
+	ok "exported $OUT ($(du -h "$OUT" | cut -f1))"
+	say "on the target machine, with pi itself already installed there:"
+	say "    mkdir -p ~/.pi && unzip -q $OUT -d ~/.pi && pi"
+	[ $INCLUDE_AGENTS -eq 1 ] && say "    unzip -qo $OUT '_agents/*' -d /tmp/piagents && cp -a /tmp/piagents/_agents/. ~/.agents/ && rm -rf /tmp/piagents"
+	say "  (or, to try it without touching the target's own pi: unzip to ~/.config/pi/officetemp and"
+	say "   start it with PI_CODING_AGENT_DIR=~/.config/pi/officetemp/agent pi)"
+	exit 0
+fi
 say "pi setup: $ROOT"
 
 # --- 1. prerequisites -----------------------------------------------------
