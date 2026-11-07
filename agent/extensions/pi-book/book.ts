@@ -31,7 +31,6 @@
  * work — no model calls — so it is shared by the extension and the CLI.
  */
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -112,8 +111,11 @@ function isScratch(cwd: string): boolean {
 
 /**
  * Stable project id: the git remote (the same repo matches on every machine,
- * wherever it is checked out), else the repo root's name, else the directory.
- * "" in a temp directory: no project there, only the user's chapters.
+ * wherever it is checked out), else the repo root's name, else one "machine"
+ * bucket for every non-git directory — anything outside a repo is about this
+ * machine, not about one cwd, and a hash per cwd would scatter such notes into
+ * parallel buckets nothing else can find. "" in a temp directory: no project
+ * there, only the user's chapters.
  */
 export function projectId(cwd: string): string {
 	if (isScratch(cwd)) return "";
@@ -133,8 +135,7 @@ export function projectId(cwd: string): string {
 	try {
 		return kebab(path.basename(git(["rev-parse", "--show-toplevel"], cwd)));
 	} catch {
-		const hash = createHash("sha1").update(cwd).digest("hex").slice(0, 6);
-		return `${kebab(path.basename(cwd))}-${hash}`;
+		return "machine";
 	}
 }
 
@@ -500,6 +501,28 @@ export class Book {
 		this.backup(rel);
 		fs.rmSync(path.join(this.root, rel), { force: true });
 		return true;
+	}
+
+	/**
+	 * Move one project chapter (oldRel = "projects/<from>/<chapter>.md") to
+	 * another project. Keeps the file text; returns the new rel, or "" on an
+	 * out-of-shape path, a missing chapter, or an already-occupied target.
+	 * Callers re-write INDEX.md themselves afterwards.
+	 */
+	moveChapter(oldRel: string, newProject: string): string {
+		const m = /^projects\/([^/]+)\/([^/]+\.md)$/.exec(oldRel);
+		if (!m) return "";
+		const [, from, chapterFile] = m;
+		if (!from || !chapterFile || from === newProject) return "";
+		const abs = path.join(this.root, oldRel);
+		if (!this.read(oldRel)) return "";
+		const newRel = `projects/${kebab(newProject)}/${chapterFile}`;
+		if (this.read(newRel)) return "";
+		const newDir = path.join(this.root, "projects", kebab(newProject));
+		fs.mkdirSync(newDir, { recursive: true });
+		this.backup(oldRel);
+		fs.renameSync(abs, path.join(newDir, chapterFile));
+		return newRel;
 	}
 
 	/** Regenerate INDEX.md: every chapter's summary and section headings, and every appendix. */

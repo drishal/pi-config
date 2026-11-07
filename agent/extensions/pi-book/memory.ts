@@ -327,10 +327,10 @@ export class Memory {
 	 */
 	async findAppendices(
 		query: string,
-		project: string,
+		project: string | undefined,
 		opts: { k: number; minCos?: number; keepKeyword?: boolean; signal?: AbortSignal },
 	): Promise<Appendix[]> {
-		const all = this.book.appendices([project]);
+		const all = this.book.appendices(project === undefined ? undefined : [project]);
 		if (!all.length) return [];
 		const chunks = this.appendixChunks(project);
 		const { hits, mode } = await this.index.search(chunks, query, chunks.length, opts.signal);

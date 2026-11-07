@@ -305,17 +305,18 @@ export default function (pi: ExtensionAPI) {
 		label: "Memory",
 		description:
 			"Your long-term memory book: Markdown notes about the user (all projects) and the current project, kept across sessions. " +
-			'search: hybrid keyword + semantic search (query). read: a chapter by path such as "user/preferences.md", or "INDEX". ' +
+			'search: hybrid keyword + semantic search (query); defaults to this project — set allProjects to search everywhere. read: a chapter by path such as "user/preferences.md", or "INDEX". ' +
 			"write: record one durable fact (scope, chapter, section, text). update / delete: change a note, quoting its text as old; delete with path removes an appendix. " +
 			"appendix: save a long write-up — a debug session's cause, commands and key log lines, or reference material — as text (up to 6000 chars) under a one-line summary; search lists it by summary, read loads it. " +
-			"history: keyword search over past sessions of this project, verbatim — for details the notes do not keep (errors, commands, what exactly was said).",
+			"history: keyword search over past sessions of this project, verbatim — for details the notes do not keep (errors, commands, what exactly was said). " +
+			'move: relocate a chapter to another project (path + to, e.g. path "projects/shadow-50f3b0/system-state.md" to "machine").',
 		promptSnippet: "Search, read or record long-term memory notes about the user and this project",
 		promptGuidelines: [
 			"Use memory write when the user states a lasting preference, corrects you, or a project decision is made — never for task progress or secrets.",
 			"After solving a non-trivial problem whose detail would help next time (a root cause, the commands and log lines that showed it), save it with memory appendix.",
 		],
 		parameters: Type.Object({
-			action: StringEnum(["search", "read", "write", "update", "delete", "appendix", "history"] as const),
+			action: StringEnum(["search", "read", "write", "update", "delete", "appendix", "history", "move"] as const),
 			query: Type.Optional(Type.String({ description: "search / history: what to look for" })),
 			path: Type.Optional(Type.String({ description: 'read: chapter or appendix path from the index, or "INDEX"; delete: an appendix path' })),
 			scope: Type.Optional(StringEnum(["user", "project"] as const, { description: "write / appendix: user = about the person, everywhere; project = this repo only" })),
@@ -325,7 +326,9 @@ export default function (pi: ExtensionAPI) {
 			title: Type.Optional(Type.String({ description: "appendix: short title; the same title replaces it" })),
 			summary: Type.Optional(Type.String({ description: "appendix: one line saying what it holds, so a search finds it" })),
 			old: Type.Optional(Type.String({ description: "update / delete: the existing note's text" })),
+			to: Type.Optional(Type.String({ description: "move: target project id for a chapter" })),
 			budget: Type.Optional(Type.Number({ description: "search: token budget for results (default 800)" })),
+			allProjects: Type.Optional(Type.Boolean({ description: "search: match notes in every project, not just this one (default false)" })),
 			k: Type.Optional(Type.Number({ description: "history: number of excerpts (default 4)" })),
 		}),
 		async execute(_id, params, signal, _onUpdate, ctx) {
@@ -337,18 +340,32 @@ export default function (pi: ExtensionAPI) {
 					if (!params.query) return reply("search needs a query");
 					// Single facts under their headings, within a token budget; exact-term
 					// (keyword) matches survive the similarity floor.
-					const r = await m.read(params.query, scope, {
+					const allProjects = !!params.allProjects;
+					const useScope = allProjects ? undefined : scope;
+					const r = await m.read(params.query, useScope, {
 						budgetTokens: Math.min(Math.max(params.budget ?? 800, 100), 4000),
 						unit: "bullet",
 						minCos: m.cfg.recall.minCos,
 						keepKeyword: true,
 						signal,
 					});
-					const apps = await m.findAppendices(params.query, scope, { k: 4, minCos: m.cfg.recall.minCos, keepKeyword: true, signal }).catch(() => []);
-					if (!r.groups.length && !apps.length) return reply("No matching notes.");
-					const body = r.groups.map((g) => `[${g.section.rel} › ${g.section.heading}]\n${g.lines.join("\n")}`);
-					if (apps.length) body.push(`Appendices (read the path for the full text):\n${apps.map((a) => `- ${a.rel} — ${a.summary}`).join("\n")}`);
-					return reply(`${body.join("\n\n")}${r.mode !== "hybrid" ? `\n\n(${r.mode} search${r.error ? `: ${r.error}` : ""})` : ""}`);
+					const apps = await m.findAppendices(params.query, useScope, { k: 4, minCos: m.cfg.recall.minCos, keepKeyword: true, signal }).catch(() => []);
+					let replyText: string;
+					if (!r.groups.length && !apps.length) {
+						// Empty answer. Mention other projects that *do* have chapters so a
+						// scope-mismatch miss is distinguishable from the book being empty.
+						if (!allProjects) {
+							const others = m.book.chapters().filter((c) => c.scope === "project" && c.project !== scope).map((c) => c.project as string);
+							replyText = others.length ? `No matching notes in this project. Other projects in the book: ${[...new Set(others)].join(", ")} — search all with allProjects: true.` : `No matching notes in this project. No other projects in the book yet.`;
+						} else {
+							replyText = `No matching notes in any project.`;
+						}
+					} else {
+						const body = r.groups.map((g) => `[${g.section.rel} › ${g.section.heading}]\n${g.lines.join("\n")}`);
+						if (apps.length) body.push(`Appendices (read the path for the full text):\n${apps.map((a) => `- ${a.rel} — ${a.summary}`).join("\n")}`);
+						replyText = `${body.join("\n\n")}${allProjects ? "\n\n(searched across all projects)" : ""}`;
+					}
+					return reply(`${replyText}${r.mode !== "hybrid" ? `\n\n(${r.mode} search${r.error ? `: ${r.error}` : ""})` : ""}`);
 				}
 				case "history": {
 					if (!params.query) return reply("history needs a query");
@@ -376,6 +393,22 @@ export default function (pi: ExtensionAPI) {
 					note(`tool appendix: ${a.note}`);
 					if (a.ok) await m.index.refresh(m.appendixChunks(scope)).catch(() => {});
 					return reply(a.ok ? `Appendix ${a.note}` : `Not saved — ${a.note}`);
+				}
+				case "move": {
+					const rel = (params.path ?? "").replace(/^\/+/, "");
+					const to = (params.to ?? "").trim().replace(/^projects\//, "");
+					if (!rel || !to) return reply('move needs path (e.g. "projects/shadow-50f3b0/system-state.md") and to ("machine" or a project id)');
+					if (!/^projects\/[^/]+\/[^/]+\.md$/.test(rel)) return reply(`${rel} is not a project chapter (expected projects/<id>/<chapter>.md)`);
+					const newRel = m.book.moveChapter(rel, to);
+					if (!newRel) {
+						const cur = /^projects\/([^/]+)\//.exec(rel)?.[1];
+						return reply(cur === to ? `Already in ${rel}.` : `Not moved: chapter missing, target occupied, or bad path`);
+					}
+					m.book.writeIndex();
+					// Refresh the moved chapter's embeddings; it now belongs to a different bucket.
+					await m.index.refresh(m.chunks(undefined)).catch(() => {});
+					note(`tool move ${rel} → ${newRel}`);
+					return reply(`Moved ${rel} → ${newRel}`);
 				}
 				case "delete":
 					if (params.path) {
