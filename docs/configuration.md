@@ -55,9 +55,10 @@ and the diff, and handing that to a child only re-sends context.
 to happen. Both roles carry the web tools (~1.7k tokens per spawn) because
 verification sometimes needs evidence that is not in the repo: provider syntax,
 library behavior, a changelog that contradicts a comment. `oracle` sits on
-`xai/*`, so it spends the SuperGrok subscription rather than the OpenCode pool;
-`kimi-k3` ($15/M out) and `glm-5.3` are the pool-side escalations if the
-subscription hits a limit.
+`xai/*`, so it spends the SuperGrok subscription rather than the OpenCode pool.
+If the subscription hits its limit, escalate to `commandcode/zai-org/GLM-5.3` or
+`commandcode/moonshotai/Kimi-K3.1-Pro`, never to their `opencode-go/*` twins (see
+the routing rule below).
 
 `subagents-lite.json` deliberately sets no `agent.default`. Model precedence is
 session override > project file > `subagents-lite.json` > agent frontmatter >
@@ -76,13 +77,30 @@ therefore put the decision, the constraints and the question in the task text.
 Three things drive the map. Thinking levels only exist where the model
 publishes a `thinkingLevelMap`; asking a model with no map for a level is a
 silent no-op, and asking for a level that maps to `null` falls back to `high`.
-Usage draws on **one shared pool**: every model spends it at its own token
-prices, so price per token is the only lever. OpenCode's per-model dollar figures
-are not separate allowances. Subscribers still report the monthly bar reaching
-100% below the sum of their visible usage (#46365, #50457), so read the
-percentage as approximate and the reset timestamps as exact. Models under `xai/*`
-do not touch the pool at all: the xAI OAuth login is a SuperGrok/X Premium
-subscription with its own allowance, which is why `oracle` sits there.
+OpenCode Go draws on **one shared pool**: a single rolling (5 h), weekly and
+monthly bar for every model ($12 / $30 / $60 of base allowance). The per-model
+monthly limits on OpenCode's pricing page are not separate allowances. Each one
+sets a weight instead: a request counts its list price × ($60 ÷ that model's
+monthly limit), and every response reports it as `usage.opencode.allowance` next
+to `list_cost`. Measured 2026-11-10: `deepseek-v4.1-flash` (limit $100) counts
+0.6× and `qwen3.8-flash` (limit $30) counts 2×. So the $15-limit models (`kimi-k3`,
+`kimi-k3.1-pro`, `glm-5.3`, `grok-4.7`, `qwen3.8-max`, `deepseek-v4-pro`,
+`claude-haiku-5-5`, the gpt lunas) count 4×, and $3 of their list spend fills the
+5-hour bar. That is why price per token alone misleads. The `*-free` models are
+unmetered. Subscribers still report the monthly bar reaching 100% below the sum
+of their visible usage (#46365, #50457), so read the percentage as approximate
+and the reset timestamps as exact.
+
+Command Code (GOAT) is a second, separate pool: $14 per 5 h, $35 per week and $70
+per month for all models, with a per-model monthly cap on top. That cap is $100
+for `deepseek-v4.1-flash` and `glm-5.3-flash`, $20 for `glm-5.3`, `kimi-k3.1-pro`
+and `grok-4.7`, and $10 for `claude-sonnet-5-5`. `GET
+https://api.commandcode.ai/alpha/billing/credits` returns the live windows.
+Routing rule: **DeepSeek on OpenCode Go, GLM on Command Code**, and any other
+model on whichever plan gives it the higher limit. Models under `xai/*` touch
+neither pool: the xAI OAuth login is a SuperGrok/X Premium subscription with one
+weekly allowance shared with Grok chat and Grok Build, which is why `oracle` sits
+there.
 
 Price per 1M tokens for the models this map uses:
 
