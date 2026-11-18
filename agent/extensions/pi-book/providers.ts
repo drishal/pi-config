@@ -4,7 +4,7 @@
  *
  *   base URL  models.json providers.<name>.baseUrl; for the provider that
  *             litellm-auto.ts registers (not in models.json on every machine):
- *             LITELLM_BASE_URL, then ~/.pi/secrets/litellm.url
+ *             LITELLM_BASE_URL, auth.json endpoint (stored env.LITELLM_BASE_URL), then ~/.pi/secrets/litellm.url
  *   API       models.json providers.<name>.api (direct calls need an
  *             OpenAI-compatible one)
  *   key       auth.json[<name>] (what `/login` keeps current), then
@@ -74,6 +74,7 @@ export function resolveProvider(agentDir: string, name: string): ProviderEndpoin
 		}
 	}
 	const auth = readJson(path.join(agentDir, "auth.json"))?.[name];
+	if (!baseUrl && typeof auth?.env?.LITELLM_BASE_URL === "string") baseUrl = auth.env.LITELLM_BASE_URL;
 	const authKey = typeof auth === "string" ? auth : (auth?.key ?? auth?.apiKey);
 	const apiKey = resolveKeyValue(authKey) ?? resolveKeyValue(entry.apiKey);
 	return {
@@ -107,7 +108,7 @@ const PROVIDER_EXTENSION_TIMEOUT_MS = 8_000;
  */
 export async function loadExtensionProviders(
 	agentDir: string,
-	register: (name: string, config: unknown) => void,
+	register: (providerOrName: import("@earendil-works/pi-ai").Provider | string, config?: unknown) => void,
 ): Promise<string[]> {
 	const dir = path.join(agentDir, "extensions");
 	let entries: fs.Dirent[];
@@ -127,10 +128,11 @@ export async function loadExtensionProviders(
 		{
 			get: (_target, prop) =>
 				prop === "registerProvider"
-					? (name: string, config: unknown) => {
-							register(name, config);
-							if (!added.includes(name)) added.push(name);
-						}
+					? (nameOrProvider: string | import("@earendil-works/pi-ai").Provider, config?: unknown) => {
+						const name = typeof nameOrProvider === "string" ? nameOrProvider : nameOrProvider.id;
+						register(nameOrProvider, config);
+						if (!added.includes(name)) added.push(name);
+					}
 					: () => undefined,
 		},
 	);

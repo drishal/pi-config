@@ -133,6 +133,11 @@ function viaMicrocall(cfg: LlmConfig): Complete {
 // ── Outside pi (the CLI): build the isolated session from pi's own SDK ──────
 
 type Sdk = typeof import("@earendil-works/pi-coding-agent");
+type PiProvider = import("@earendil-works/pi-ai").Provider;
+type ProviderAdapter = {
+	registerProvider(name: string, config: unknown): void;
+	registerNativeProvider(provider: PiProvider): void;
+};
 
 /** The package root behind the `pi` on PATH, or undefined when that is a launcher script. */
 function sdkDirOnPath(): string | undefined {
@@ -193,9 +198,11 @@ function standalonePi(cfg: LlmConfig, agentDir: string): Complete {
 			});
 			// Providers that only an extension registers (litellm, local-model)
 			// would be unknown in a session built without extensions.
-			await loadExtensionProviders(agentDir, (name, config) =>
-				(runtime as { registerProvider(n: string, c: unknown): void }).registerProvider(name, config),
-			);
+			await loadExtensionProviders(agentDir, (nameOrProvider, config) => {
+				const adapter = runtime as unknown as ProviderAdapter;
+				if (typeof nameOrProvider === "string") adapter.registerProvider(nameOrProvider, config);
+				else adapter.registerNativeProvider(nameOrProvider as PiProvider);
+			});
 			return { sdk, runtime };
 		})();
 		return ready;
