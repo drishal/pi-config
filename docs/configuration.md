@@ -16,6 +16,11 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | `agents/` | `pi-subagents-lite` role definitions: model, thinking, tools, prompt per `.md` | **no** — per machine |
 | `keybindings.json` | editor key overrides: Ctrl+Backspace (and Ctrl+H, the raw byte foot/tmux send for it) delete a word | yes |
 | `model-state_example.json` | the shape of `model-state.json` | yes |
+| `router_example.md` | example markdown policy for `router/auto` | yes |
+| `router_example.json` | default mechanics for `router/auto` (`routerModel`, timeouts, budget) | yes |
+| `router.md` | machine-local markdown policy the decider reads | **no** — per machine |
+| `router.json` | machine-local mechanics: decider model, window, pins | **no** — per machine |
+| `model-router.json` | legacy v1 overlay; still read for leftover mechanics, not written | **no** — per machine |
 | `model-state.json` | our extensions' model config: the `micro` chain | **no** — per machine |
 | `pi-book_example.json` | the shape of `pi-book.json` | yes |
 | `pi-book.json` | pi-book's models (`model`, `mode`, `embedding`) and settings | **no** — per machine; see [memory.md](memory.md#configuration) |
@@ -116,6 +121,20 @@ weekly and monthly percentages plus their reset timestamps — the cheapest way 
 watch the pool. The pay-as-you-go **balance** is the overflow: with "Use balance"
 enabled a model that reaches its limit falls back to it instead of being blocked.
 
+## router.json and router.md
+
+The markdown policy (`router.md`, with a tracked `router_example.md`) is what
+the decider reads: plans, caps, promo dates, peak windows, and per-model fit.
+Mechanics live in `router.json` (tracked defaults: `router_example.json`):
+`routerModel` (a pi `provider/id`, default `command-code/typesafe/jev`),
+optional `routerContextWindow` (used when the decider is not in pi's registry;
+32768 for Jev), optional `buildRouterModel` (unset = `/build-router` inherits
+the main thread model), timeouts, token-budget knobs, and `subagentPins`.
+`/router model` writes `routerModel` after checking the id against pi's
+registry. A legacy `model-router.json` is still read for leftover mechanics
+(timeouts, pins) but is no longer the routing table. See
+[model-router.md](extensions/model-router.md).
+
 ## model-state.json
 
 Our extensions' model settings, per machine and never synced;
@@ -155,6 +174,7 @@ Env switches read by our extensions:
 | Variable | Extension | Effect |
 |---|---|---|
 | `PI_MICRO_MODEL` | microcall | override the model chain |
+| `PI_ROUTER_VERBOSE` | model-router | log each routing decision to stderr (useful with `pi -p`) |
 | `PI_BOOK` | pi-book | `off` turns it off entirely (benchmarks, scripted runs) |
 | `PI_MEMORY_DIR`, `PI_MEMORY_CONFIG` | pi-book | another book / config file |
 | `PI_TMUX_STREAM`, `PI_TMUX_SESSION`, `PI_TMUX_MAX_RESULT` | tmux-stream | force on/off, session name, result cap |

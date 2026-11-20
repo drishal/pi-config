@@ -1,0 +1,16 @@
+{
+  "routerModel": "command-code/typesafe/jev",
+  "routerContextWindow": 32768,
+  "timeoutMs": 2500,
+  "chatTimeoutMs": 15000,
+  "promptChars": 16000,
+  "confidenceFloor": 0.45,
+  "headroomTokens": 256,
+  "charsPerToken": 3.25,
+  "largeContextChars": 200000,
+  "subagentPins": {},
+  "jev": {
+    "url": "https://api.commandcode.ai/provider/v1/systemone",
+    "id": "typesafe/jev"
+  }
+}

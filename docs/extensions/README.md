@@ -9,6 +9,7 @@ Packages are listed in [SETUP.md](../../SETUP.md) step 6.
 | [`00-env.ts`](#00-envts) | loads `pi.env` and `.env` before everything else |
 | [`pi-book/`](#pi-book) | long-term memory as Markdown notes — [full doc](../memory.md) |
 | [`microcall.ts`](#microcallts) | one-shot model calls as minimal isolated pi sessions — [full doc](microcall.md) |
+| [`model-router/`](#model-router) | opt-in virtual model `router/auto` that picks a Go / GOAT model from a markdown policy — [full doc](model-router.md) |
 | [`statusline.ts`](#statuslinets) | two-line footer with the real starship prompt |
 | [`neat-render.ts`](#neat-renderts) | compact, Claude-Code-shaped transcript rows |
 | [`local-llama-autodetect.ts`](#local-llama-autodetectts) | registers a running llama-server with its real limits |
@@ -43,6 +44,14 @@ interpolation. `/env` lists names and sources, never values.
 Recall at session start, capture after each run, a journal of recent sessions,
 and search over pi's past sessions. Tool `memory`; commands `/remember`,
 `/memory`. Everything is in [memory.md](../memory.md).
+
+## model-router/
+
+Registers `router/auto`, an opt-in virtual model that routes each request to
+an OpenCode Go or Command Code model from `router.md`. Select it with
+`/model`; it is not the default. The decider is `routerModel` in `router.json`
+(default Command Code Jev). `/router status|explain|pin|model`. `/build-router`
+drafts the policy as a regular turn. Details: [model-router.md](model-router.md).
 
 ## microcall.ts
 
