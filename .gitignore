@@ -37,6 +37,23 @@
 !/agent/themes/claude-dark.json
 /agent/themes/stylix.yaml
 
+# model-router: per-user files. Everything /build-router and the model-router
+# extension write is personal to one user (their plans, caps, keys-in-use and
+# routing history) and never belongs in this repo; users copy router.md and
+# router.json to a new machine themselves (docs/extensions/model-router.md).
+# They are already covered by `/agent/*` above; these lines are unanchored on
+# purpose so a future allowlist change, or a copy dropped into an allowed
+# directory such as agent/extensions/, can never start tracking them.
+# Keep in sync with PERSONAL_ROUTER_FILES in agent/extensions/model-router/load.ts
+# and the `never` list in .githooks/pre-commit.
+router.md
+router.md.tmp
+router.staging.md
+router.json
+router.parsed.json
+model-router-last.json
+model-router.json
+
 # Anywhere
 *.bak
 *.tmp

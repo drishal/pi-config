@@ -4,7 +4,7 @@
  */
 import { copyFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	DEFAULT_MECHANICS,
@@ -72,6 +72,41 @@ export function buildRouterPromptPath(): string {
 		return tracked;
 	} catch {
 		return join(agentDir(), "extensions/model-router/build-router.prompt.md");
+	}
+}
+
+/**
+ * Every file this extension (or /build-router) writes. All are personal to one
+ * user and machine, live directly in agentDir(), and are git-ignored by name
+ * in the pi-config repo (.gitignore "model-router: per-user files"). Keep this
+ * list and that block in sync. model-router.json is the legacy v1 overlay: it
+ * is only read, never written, but is just as personal.
+ */
+export const PERSONAL_ROUTER_FILES = [
+	"router.md",
+	"router.md.tmp",
+	"router.staging.md",
+	"router.json",
+	"router.parsed.json",
+	"model-router-last.json",
+	"model-router.json",
+] as const;
+
+const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Refuse to write a tracked path: the shipped examples (router_example.*) or
+ * anything inside the extension's own source directory. Personal files go to
+ * agentDir() only.
+ */
+export function assertPersonalPath(path: string): void {
+	const abs = resolve(path);
+	const name = basename(abs);
+	if (/_example\.(md|json)$/i.test(name)) {
+		throw new Error(`model-router: refusing to write tracked example file ${abs}`);
+	}
+	if (abs === EXTENSION_DIR || abs.startsWith(EXTENSION_DIR + sep)) {
+		throw new Error(`model-router: refusing to write inside the extension source directory (${abs})`);
 	}
 }
 
@@ -206,6 +241,7 @@ export function writeMechanics(partial: Record<string, unknown>): MechanicsConfi
 	})();
 	const merged = merge(current, partial);
 	const dest = localConfigPath();
+	assertPersonalPath(dest);
 	mkdirSync(dirname(dest), { recursive: true });
 	writeFileSync(dest, JSON.stringify(merged, null, 2) + "\n", { mode: 0o600 });
 	return loadMechanics().mechanics;
@@ -243,6 +279,7 @@ function readCache(path: string): CachedPolicy | undefined {
 
 function writeCache(path: string, cache: CachedPolicy): void {
 	try {
+		assertPersonalPath(path);
 		mkdirSync(dirname(path), { recursive: true });
 		writeFileSync(path, JSON.stringify(cache) + "\n", { mode: 0o600 });
 	} catch {
@@ -305,6 +342,32 @@ export function loadPolicy(registryWindow?: number): LoadedPolicy {
 		};
 	};
 
+	/**
+	 * Fall back to the last parsed cache only after re-validating it against
+	 * the *current* mechanics and decider window. A cache that was within
+	 * budget for an older, larger decider must not be routed through a
+	 * smaller one (e.g. after `/router model` switches to Jev's 32K).
+	 */
+	let cacheReport: ValidationReport | undefined;
+	const keepCache = (why: string): LoadedPolicy | undefined => {
+		if (!cache?.policy) return undefined;
+		cacheReport ??= validatePolicy(cache.policy, mechanics, registryWindow);
+		if (!cacheReport.ok) return undefined;
+		return {
+			policy: cache.policy,
+			mechanics,
+			mechanicsSource,
+			policySource: `${cachePath} (kept; ${why})`,
+			budget: cacheReport.budget,
+			window,
+			fallbackUsed: true,
+		};
+	};
+	const cacheRejected = (): string | undefined =>
+		cacheReport && !cacheReport.ok
+			? `last parsed policy (${cachePath}) no longer fits the current decider and was not used:\n${formatReport(cacheReport)}`
+			: undefined;
+
 	if (md && mdStat) {
 		const cacheFresh =
 			cache && cache.mtimeMs === mdStat.mtimeMs && cache.size === mdStat.size && cache.budget?.ok;
@@ -328,57 +391,38 @@ export function loadPolicy(registryWindow?: number): LoadedPolicy {
 			const loaded = accept(parsed, mdPath, mdStat, true);
 			if (loaded) return loaded;
 			const report = validatePolicy(parsed, mechanics, registryWindow);
-			if (cache?.policy && cache.budget?.ok) {
-				return {
-					policy: cache.policy,
-					mechanics,
-					mechanicsSource,
-					policySource: `${cachePath} (kept; ${mdPath} failed validation)`,
-					budget: cache.budget,
-					window,
-					warning: `router.md was not activated:\n${formatReport(report)}`,
-					fallbackUsed: true,
-				};
+			const kept = keepCache(`${mdPath} failed validation`);
+			if (kept) {
+				kept.warning = `router.md was not activated:\n${formatReport(report)}${kept.warning ? `\n${kept.warning}` : ""}`;
+				return kept;
 			}
 			const example = loadExample(mechanics, mechanicsSource, registryWindow, window);
-			example.warning = `router.md was not activated:\n${formatReport(report)}`;
+			example.warning = joinWarnings(`router.md was not activated:\n${formatReport(report)}`, cacheRejected(), example.warning);
 			return example;
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			if (cache?.policy) {
-				return {
-					policy: cache.policy,
-					mechanics,
-					mechanicsSource,
-					policySource: `${cachePath} (kept; ${mdPath} failed to parse)`,
-					budget: cache.budget,
-					window,
-					warning: `router.md failed to parse (${message}); using last valid policy`,
-					fallbackUsed: true,
-				};
+			const kept = keepCache(`${mdPath} failed to parse`);
+			if (kept) {
+				kept.warning = `router.md failed to parse (${message}); using last valid policy`;
+				return kept;
 			}
 			const example = loadExample(mechanics, mechanicsSource, registryWindow, window);
-			example.warning = `router.md failed to parse (${message})`;
+			example.warning = joinWarnings(`router.md failed to parse (${message})`, cacheRejected(), example.warning);
 			return example;
 		}
 	}
 
-	if (cache?.policy && cache.budget?.ok) {
-		const report = validatePolicy(cache.policy, mechanics, registryWindow);
-		if (report.ok) {
-			return {
-				policy: cache.policy,
-				mechanics,
-				mechanicsSource,
-				policySource: `${cachePath} (no router.md)`,
-				budget: report.budget,
-				window,
-				fallbackUsed: true,
-			};
-		}
-	}
+	const kept = keepCache("no router.md");
+	if (kept) return kept;
 
-	return loadExample(mechanics, mechanicsSource, registryWindow, window);
+	const example = loadExample(mechanics, mechanicsSource, registryWindow, window);
+	example.warning = joinWarnings(cacheRejected(), example.warning);
+	return example;
+}
+
+function joinWarnings(...parts: (string | undefined)[]): string | undefined {
+	const out = parts.filter((p): p is string => !!p);
+	return out.length ? out.join("\n") : undefined;
 }
 
 function loadExample(
@@ -457,6 +501,8 @@ export function activatePolicy(
 	const dest = opts?.destPath ?? routerMdPath();
 	const cachePath = opts?.cachePath ?? parsedCachePath();
 	const mechanics = opts?.mechanics ?? loadMechanics().mechanics;
+	assertPersonalPath(dest);
+	assertPersonalPath(cachePath);
 	const text = readFileSync(sourcePath, "utf8");
 	const policy = parseRouterMd(text);
 	const report = validatePolicy(policy, mechanics, opts?.registryWindow);
