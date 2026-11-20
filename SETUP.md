@@ -134,7 +134,7 @@ pi creates most of this on first run. What matters:
 | `settings.shared.json`                 | Shared settings: packages, tools, theme    | Yes (step 4)  |
 | `settings.json`                        | pi's live settings: shared ones merged in, plus toggles and model picks | **No** (per machine; step 4) |
 | `mcp.json`                     | MCP server definitions (pi built-in)       | **No** (yours; suggestions in step 5) |
-| `model-state.json`, `pi-book.json`, `.env` | micro models; pi-book's models; per-machine env and secrets | **No** (per machine) |
+| `model-state.json`, `pi-book.json`, `model-router.json`, `.env` | micro models; pi-book's models; optional router overlay; per-machine env and secrets | **No** (per machine) |
 | `book/`                                | pi-book's notes: private (step 8)            | **No** (private; never synced) |
 | `pi.env`                               | Shared env switches                        | Yes (step 4b) |
 | `npm/`                                 | pi's package install tree                  | **No** (rebuilt by `setup.sh`) |
@@ -493,6 +493,7 @@ machine only would be listed by name in `.gitignore` instead):
 | `read-guard/` | Trims a `read` only when it would overflow the context window, returning the first 30 lines plus a use-grep-instead directive. From little-coder. Replaced `pi-mono-context-guard`, which capped every read at 120 lines regardless of pressure. |
 | `compaction-continue/` | Watchdog that nudges pi to resume when a turn stalls. Upstream is unmaintained since 2026-05; the compaction half it was written for was fixed in pi 0.84.4, the stalled-turn half is still live. |
 | `sudo-session.ts` | `/sudo` elevation for the bash tool. |
+| `model-router/` | Opt-in virtual model `router/auto`: picks an OpenCode Go or Command Code model per request from a plan-aware table (`model-router_example.json`, optional `model-router.json` overlay). Jev classifies unclear prompts; 429s walk a fallback list. `/router status`, `/router explain`, `/router pin`. Not the default — select it with `/model`. |
 | `microcall.ts` | One-shot side calls for other extensions (`globalThis[Symbol.for("pi.microcall")]`), each run as a fresh isolated in-process pi session: no extensions, skills, AGENTS.md or tools, in-memory, thinking off. Because it is a real pi session, requests carry pi's own provider headers — so it works on providers that reject raw SDK calls (OpenCode Go). Model chain: `model-state.json` `"micro"` (`model` + `fallbacks`), else the caller's default, else the session model. `/microcall` shows the chain and recent calls; `/microcall test` round-trips. |
 | `eval/` | `eval` tool: Python (`runner.py`, plain CPython — `python3` on PATH or `EVAL_PYTHON`) and JavaScript (`kernel.cjs`, Node REPL semantics) in persistent per-session kernels. Last-expression value, top-level await, `!cmd`/`%pip` in Python; Ctrl+C/timeout interrupts a cell, and a kernel that will not stop is restarted. Modelled on omp's `eval`. |
 | `00-env.ts` | Loads `pi.env` (shared) and `.env` (this machine) into the environment before every other extension; `/env` shows names and sources. See step 4b. |
@@ -681,6 +682,7 @@ recall <prompt> | capture < transcript | history <q>` works outside pi (`--proje
 These are **not in this repo** — supply them before first run:
 
 - [ ] `~/.pi/agent/models.json` — provider configuration (you set this up, step 2).
+- [ ] `~/.pi/agent/model-router.json` — optional overlay on `model-router_example.json` if you want to change promo dates, model lists, or `subagentPins`. The router runs from the example alone if this file is missing. See [docs/extensions/model-router.md](docs/extensions/model-router.md).
 - [ ] `~/.pi/agent/auth.json` — created automatically by `/login`.
 - [ ] `web-search.json` — optional. Only needed for a private SearXNG
       backend; `pi-web-access` works keyless otherwise (see Prerequisites).
@@ -698,6 +700,7 @@ These are **not in this repo** — supply them before first run:
 ```bash
 pi                       # launches; no config errors
 # inside pi:
+# /model should list router/auto (opt-in; not the default)
 /mcp             # lists every server you configured, each "connected"
 # tools from whichever servers you configured should appear
 /memory                  # pi-book status (step 8)

@@ -8,7 +8,7 @@ state that must never be committed. Three layers keep it that way.
 
 Everything is ignored unless listed with a `!` line: `.gitignore`,
 `.githooks/`, `README.md`, `SETUP.md`, `setup.sh`, `docs/`,
-and under `agent/` only `AGENTS.md`, `settings.shared.json`, `pi.env`, `model-state_example.json`, `pi-book_example.json`, `keybindings.json`, `extensions/` and `themes/`.
+and under `agent/` only `AGENTS.md`, `settings.shared.json`, `pi.env`, `model-state_example.json`, `model-router_example.json`, `pi-book_example.json`, `keybindings.json`, `extensions/` and `themes/`.
 Anything pi or an extension creates later stays private by default.
 
 To track a new file, add a `!` line for it **and** add it to the pre-commit
@@ -20,7 +20,7 @@ The second line of defence — `git add -f` bypasses ignore rules, and a new
 extension can carry a pasted key. It refuses a commit when:
 
 - a staged path is not on the allowlist, or is private state (`settings.json`,
-  `auth.json`, `models.json`, `mcp.json`, `mcp-adapter.json`, `model-state.json`, `.env`, `sessions/`, `book/`,
+  `auth.json`, `models.json`, `mcp.json`, `mcp-adapter.json`, `model-state.json`, `model-router.json`, `.env`, `sessions/`, `book/`,
   `memories/`, `npm/`, `stream/`, `skills/`, …)
 - staged content looks like a secret (OpenAI/xAI/GitHub/AWS/Google keys,
   private keys, bearer tokens, OAuth token fields)
@@ -55,7 +55,7 @@ Per clone, idempotent (`--check` reports without changing anything):
 5. memory: reports whether the embedding endpoint answers (pi-book needs
    no packages; without embeddings search is keyword-only)
 6. prints what it cannot do: `models.json`, `auth.json`, `mcp.json`, `.env`,
-   skills, `settings.json`, `model-state.json` — the per-machine and personal files
+   skills, `settings.json`, `model-state.json`, `model-router.json` — the per-machine and personal files
 
 ## Commits
 

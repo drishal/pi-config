@@ -16,6 +16,8 @@ custom sections our extensions read. First-time setup is [SETUP.md](../SETUP.md)
 | `agents/` | `pi-subagents-lite` role definitions: model, thinking, tools, prompt per `.md` | **no** — per machine |
 | `keybindings.json` | editor key overrides: Ctrl+Backspace (and Ctrl+H, the raw byte foot/tmux send for it) delete a word | yes |
 | `model-state_example.json` | the shape of `model-state.json` | yes |
+| `model-router_example.json` | defaults for the `router/auto` virtual model | yes |
+| `model-router.json` | optional overlay for the router (promo dates, pins, lists) | **no** — per machine |
 | `model-state.json` | our extensions' model config: the `micro` chain | **no** — per machine |
 | `pi-book_example.json` | the shape of `pi-book.json` | yes |
 | `pi-book.json` | pi-book's models (`model`, `mode`, `embedding`) and settings | **no** — per machine; see [memory.md](memory.md#configuration) |
@@ -116,6 +118,16 @@ weekly and monthly percentages plus their reset timestamps — the cheapest way 
 watch the pool. The pay-as-you-go **balance** is the overflow: with "Use balance"
 enabled a model that reaches its limit falls back to it instead of being blocked.
 
+## model-router.json
+
+Defaults live in the tracked `model-router_example.json`. An optional
+`model-router.json` in the same directory overlays them (per machine, never
+synced). The extension runs from the example alone if the overlay is missing.
+`hardDebug.afterPromo` / `afterPromoEscalate` / `promoUntil` are the one-line
+knobs for what happens when the OpenCode Go GLM-5.3 promo ends.
+`subagentPins` is an empty object by default — subagents inherit `router/auto`
+when the parent selected it. See [model-router.md](extensions/model-router.md).
+
 ## model-state.json
 
 Our extensions' model settings, per machine and never synced;
@@ -155,6 +167,7 @@ Env switches read by our extensions:
 | Variable | Extension | Effect |
 |---|---|---|
 | `PI_MICRO_MODEL` | microcall | override the model chain |
+| `PI_ROUTER_VERBOSE`, `PI_ROUTER_FORCE_JEV` | model-router | log decisions to stderr; always ask Jev on a new user turn |
 | `PI_BOOK` | pi-book | `off` turns it off entirely (benchmarks, scripted runs) |
 | `PI_MEMORY_DIR`, `PI_MEMORY_CONFIG` | pi-book | another book / config file |
 | `PI_TMUX_STREAM`, `PI_TMUX_SESSION`, `PI_TMUX_MAX_RESULT` | tmux-stream | force on/off, session name, result cap |

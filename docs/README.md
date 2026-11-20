@@ -10,8 +10,9 @@ machine are in [../SETUP.md](../SETUP.md).
 | [benchmarks/](benchmarks/README.md) | the benchmark harness, to re-run those numbers |
 | [extensions/README.md](extensions/README.md) | every local extension: what it does, commands, settings |
 | [extensions/microcall.md](extensions/microcall.md) | one-shot model calls as minimal pi sessions (and why) |
+| [extensions/model-router.md](extensions/model-router.md) | opt-in `router/auto` virtual model: plan-aware routing, Jev, fallbacks |
 | [extensions/litellm-auto.md](extensions/litellm-auto.md) | recipe: auto-register models from a LiteLLM gateway |
-| [configuration.md](configuration.md) | every config file: tracked vs private, `model-state.json` sections, env switches |
+| [configuration.md](configuration.md) | every config file: tracked vs private, `model-state.json` / `model-router.json`, env switches |
 | [repo.md](repo.md) | how `~/.pi` is a repo without leaking state: allowlist, split settings, pre-commit hook, `setup.sh` |
 
 ## Layout
@@ -28,7 +29,7 @@ machine are in [../SETUP.md](../SETUP.md).
       pi-book/                  memory (memory.md)
     themes/                         base16 YAML → pi themes
     — private, never tracked —
-    settings.json, model-state.json, .env, auth.json, models.json, mcp.json
+    settings.json, model-state.json, model-router.json, .env, auth.json, models.json, mcp.json
     book/                           pi-book's notes
     sessions/, skills/, npm/, stream/
 ```
