@@ -19,7 +19,8 @@
 !/agent/settings.shared.json
 !/agent/pi.env
 !/agent/model-state_example.json
-!/agent/model-router_example.json
+!/agent/router_example.json
+!/agent/router_example.md
 !/agent/pi-book_example.json
 !/agent/keybindings.json
 !/agent/pi-hashline-edit-pro/config.json

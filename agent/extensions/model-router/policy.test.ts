@@ -1,250 +1,273 @@
-/**
- * Unit tests for the pure routing policy.
- *   node --experimental-strip-types --test agent/extensions/model-router/policy.test.ts
- */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
-import { decide, explicitModel, heuristicTask, isDeepSeekPeak, isRetryableError, promoActive, type RouterConfig } from "./policy.ts";
-import { loadConfig } from "./config.ts";
+import {
+	JEV_CANONICAL,
+	parseDeciderText,
+	parsePickerOption,
+	formatPickerOption,
+	pickerEntries,
+	resolveDeciderKind,
+	validateRouterModel,
+	type CatalogEntry,
+} from "./decider.ts";
+import { DEFAULT_MECHANICS, parseRouterMd, type MechanicsConfig, type RouterPolicy } from "./parse.ts";
+import {
+	applyDecider,
+	explicitModel,
+	hardFilter,
+	preRoute,
+	walkOrder,
+	type RouteInput,
+} from "./policy.ts";
 
-const cfg: RouterConfig = loadConfig().config;
+const sample = `# Router policy
 
-const goFlash = "opencode-go/glm-5.3-flash";
-const goGlm = "opencode-go/glm-5.3";
-const ccFlash = "command-code/z-ai/glm-5.3-flash";
-const ccGlm = "command-code/zai-org/GLM-5.3";
-const flint = "command-code/recursive/flint-v1.0:free";
-const goDs = "opencode-go/deepseek-v4.1-flash";
-const iceman = "opencode-go/iceman-contributor-free";
-const haiku = "opencode-go/claude-haiku-5-5";
+## Plans
+Go promo through 2026-11-22.
 
-const all = [
-	flint,
-	"command-code/stealth/glyph-cluster:free",
-	"opencode-go/beam-free",
-	"opencode-go/longcat-2.5-free",
-	goFlash,
-	goGlm,
-	ccFlash,
-	ccGlm,
-	goDs,
-	"command-code/deepseek/deepseek-v4.1-flash",
-	"command-code/inclusionai/ling-3.1-flash-1019",
-	"command-code/inclusionai/ling-3.1-flash",
-	iceman,
-	haiku,
-	"opencode-go/gpt-6-luna",
-];
+## Defaults
+- fallback: \`opencode-go/glm-5.3-flash\`
+- direct: \`command-code/recursive/flint-v1.0:free\`
+- pin-free: \`command-code/recursive/flint-v1.0:free\`
+- pin-hard: \`opencode-go/glm-5.3\`
+- order: \`command-code/recursive/flint-v1.0:free\`, \`opencode-go/glm-5.3-flash\`, \`command-code/z-ai/glm-5.3-flash\`, \`opencode-go/glm-5.3\`
 
-const meta: Record<string, { contextWindow: number; images: boolean }> = {
-	[flint]: { contextWindow: 262144, images: false },
-	["command-code/stealth/glyph-cluster:free"]: { contextWindow: 256000, images: false },
-	["opencode-go/beam-free"]: { contextWindow: 1_000_000, images: false },
-	["opencode-go/longcat-2.5-free"]: { contextWindow: 1_000_000, images: true },
-	[goFlash]: { contextWindow: 1_000_000, images: true },
-	[goGlm]: { contextWindow: 1_000_000, images: false },
-	[ccFlash]: { contextWindow: 1_000_000, images: false },
-	[ccGlm]: { contextWindow: 1_000_000, images: false },
-	[goDs]: { contextWindow: 1_000_000, images: true },
-	["command-code/deepseek/deepseek-v4.1-flash"]: { contextWindow: 1_000_000, images: false },
-	["command-code/inclusionai/ling-3.1-flash-1019"]: { contextWindow: 1_000_000, images: false },
-	["command-code/inclusionai/ling-3.1-flash"]: { contextWindow: 262144, images: false },
-	[iceman]: { contextWindow: 262144, images: false },
-	[haiku]: { contextWindow: 1_000_000, images: true },
-	["opencode-go/gpt-6-luna"]: { contextWindow: 1_100_000, images: true },
-};
+## Models
 
-const offPeak = new Date("2026-11-20T04:00:00+05:30"); // Friday 04:00 IST, off-peak
-const peak = new Date("2026-11-20T07:00:00+05:30"); // Friday 07:00 IST, first peak window
-const afterPromo = new Date("2026-11-23T00:00:00+05:30");
+### \`command-code/recursive/flint-v1.0:free\`
+- context: 200K
+- images: no
+- trains: no
+- fit: micro
 
-function base(over: Partial<Parameters<typeof decide>[1]> = {}) {
+### \`opencode-go/glm-5.3-flash\`
+- context: 1M
+- images: yes
+- trains: no
+- fit: routine
+
+### \`command-code/z-ai/glm-5.3-flash\`
+- context: 1M
+- images: yes
+- trains: no
+- fit: hard_debug after promo
+
+### \`opencode-go/glm-5.3\`
+- context: 1M
+- images: no
+- trains: no
+- fit: hard_debug during promo
+
+### \`opencode-go/iceman-contributor-free\`
+- context: 200K
+- images: no
+- trains: yes
+- fit: never
+`;
+
+const policy: RouterPolicy = parseRouterMd(sample);
+const mechanics: MechanicsConfig = DEFAULT_MECHANICS;
+const ALL = policy.models.map((m) => m.id).filter((id) => !id.includes("iceman"));
+
+function input(partial: Partial<RouteInput> = {}): RouteInput {
 	return {
-		reason: "user" as const,
-		prompt: "Please fix the typo in the header.",
+		reason: "user",
+		prompt: "fix the typo in main.ts",
 		hasImages: false,
 		contextChars: 100,
-		now: offPeak,
-		available: new Set(all),
-		modelMeta: meta,
-		...over,
+		now: new Date("2026-11-20T10:00:00+05:30"),
+		available: new Set(ALL),
+		modelMeta: {
+			"command-code/recursive/flint-v1.0:free": { contextWindow: 200_000, images: false },
+			"opencode-go/glm-5.3-flash": { contextWindow: 1_000_000, images: true },
+			"command-code/z-ai/glm-5.3-flash": { contextWindow: 1_000_000, images: false },
+			"opencode-go/glm-5.3": { contextWindow: 1_000_000, images: false },
+		},
+		...partial,
 	};
 }
 
-describe("promo and peak helpers", () => {
-	it("treats 22 Nov 2026 as still in the Go promo, 23 Nov as after", () => {
-		assert.equal(promoActive("2026-11-22", new Date("2026-11-22T23:59:00+05:30")), true);
-		assert.equal(promoActive("2026-11-22", afterPromo), false);
+describe("hardFilter", () => {
+	it("drops training/contributor models even when they are in the catalog", () => {
+		const { candidates, skipped } = hardFilter(
+			policy,
+			input({ available: new Set([...ALL, "opencode-go/iceman-contributor-free"]) }),
+			mechanics,
+		);
+		assert.ok(!candidates.includes("opencode-go/iceman-contributor-free"));
+		assert.ok(skipped.some((s) => /iceman.*trains/.test(s)));
 	});
-	it("flags DeepSeek peak windows on weekdays in Asia/Calcutta", () => {
-		assert.equal(isDeepSeekPeak(peak, cfg.deepSeekPeak.windowsIst), true);
-		assert.equal(isDeepSeekPeak(offPeak, cfg.deepSeekPeak.windowsIst), false);
-		assert.equal(isDeepSeekPeak(new Date("2026-11-21T07:00:00+05:30"), cfg.deepSeekPeak.windowsIst), false); // Saturday
+
+	it("keeps only vision-capable models on image turns (md or catalog flag)", () => {
+		const { candidates, skipped } = hardFilter(policy, input({ hasImages: true }), mechanics);
+		assert.deepEqual(candidates.sort(), ["command-code/z-ai/glm-5.3-flash", "opencode-go/glm-5.3-flash"].sort());
+		assert.ok(skipped.some((s) => /flint.*no vision/.test(s)));
+		assert.ok(skipped.some((s) => /glm-5.3 \(no vision\)/.test(s) || /opencode-go\/glm-5.3 \(no vision\)/.test(s)));
 	});
-	it("recognises 429 / quota / context overflow as retryable", () => {
-		assert.equal(isRetryableError("HTTP 429 rate limit exceeded"), true);
-		assert.equal(isRetryableError("quota exhausted for this window"), true);
-		assert.equal(isRetryableError("context overflow: prompt is too long"), true);
-		assert.equal(isRetryableError("syntax error"), false);
+
+	it("prefers 1M-class models when the transcript is huge, but fails open if none remain", () => {
+		const { candidates } = hardFilter(policy, input({ contextChars: 250_000 }), mechanics);
+		assert.ok(candidates.includes("opencode-go/glm-5.3-flash"));
+		assert.ok(!candidates.includes("command-code/recursive/flint-v1.0:free"));
+	});
+
+	it("drops models that are not in the catalog", () => {
+		const { candidates } = hardFilter(
+			policy,
+			input({ available: new Set(["opencode-go/glm-5.3-flash"]) }),
+			mechanics,
+		);
+		assert.deepEqual(candidates, ["opencode-go/glm-5.3-flash"]);
 	});
 });
 
-describe("heuristics and explicit mentions", () => {
-	it("maps render/test wording to render_loop", () => {
-		const h = heuristicTask("The transcript flickers during streaming. Run the tests after.", false);
-		assert.equal(h?.task, "render_loop");
-	});
-	it("maps images to ui_review", () => {
-		const h = heuristicTask("What do you think?", true);
-		assert.equal(h?.task, "ui_review");
-	});
-	it("leaves a vague prompt unclassified so Jev can be asked", () => {
-		assert.equal(heuristicTask("What do you think about the approach we discussed?", false), undefined);
-	});
-	it("resolves 'use flint' to the free Flint id", () => {
-		assert.equal(explicitModel("please use flint for this", new Set(all)), flint);
-	});
-});
-
-describe("decide()", () => {
-	it("honours an explicit flint request", () => {
-		const d = decide(cfg, base({ prompt: "use flint and reply ok" }));
-		assert.equal(d.model, flint);
-		assert.equal(d.via, "explicit");
-	});
-
-	it("routes image turns to an OpenCode Go vision flash, never full GLM-5.3", () => {
-		const d = decide(cfg, base({ prompt: "What is wrong with this screen?", hasImages: true }));
-		assert.equal(d.model, goFlash);
-		assert.equal(d.task, "ui_review");
-		assert.notEqual(d.model, goGlm);
-	});
-
-	it("never selects iceman or muse contributor models, even if named", () => {
-		const d = decide(cfg, base({ prompt: "use opencode-go/iceman-contributor-free for this" }));
-		assert.notEqual(d.model, iceman);
-		assert.ok(d.reasons.some((r) => /refusing explicit/.test(r) || /never/.test(r) || d.skipped.some((s) => /iceman/.test(s))));
-	});
-
-	it("skips DeepSeek during the 2x peak window", () => {
-		const d = decide(cfg, base({
-			prompt: "Read the whole codebase and summarise the server layout.",
-			now: peak,
-		}));
-		assert.ok(!d.model.toLowerCase().includes("deepseek"), d.model);
-		assert.ok(d.skipped.some((s) => /DeepSeek peak/.test(s)), d.skipped.join("\n"));
-	});
-
-	it("avoids $15-cap models when a high-limit option exists", () => {
-		const d = decide(cfg, base({ prompt: "What do you think about the approach?", jev: { task: "routine_fix", confidence: 0.8 } }));
-		assert.equal(d.model, goFlash);
-		assert.notEqual(d.model, haiku);
-	});
-
-	it("stays on the previous model for continuations", () => {
-		const d = decide(cfg, base({ reason: "continuation", previousId: goFlash, prompt: "and also fix the typo" }));
-		assert.equal(d.model, goFlash);
-		assert.equal(d.via, "sticky");
-	});
-
-	it("on a 429 retry, walks the fallback chain past the failed model", () => {
-		const d = decide(cfg, base({
-			reason: "retry",
-			failedId: flint,
-			failedError: "HTTP 429 rate limit exceeded",
-			prompt: "Reply with the single word ok",
-		}));
-		assert.notEqual(d.model, flint);
-		assert.equal(d.via, "retry");
-		assert.ok(
-			d.model === "command-code/stealth/glyph-cluster:free" ||
-				d.model === "opencode-go/beam-free" ||
-				d.model.startsWith("opencode-go/") ||
-				d.model.startsWith("command-code/"),
+describe("explicitModel", () => {
+	it("resolves 'use flint' and an exact provider/id", () => {
+		assert.equal(explicitModel("please use flint for this", ALL), "command-code/recursive/flint-v1.0:free");
+		assert.equal(
+			explicitModel("use opencode-go/glm-5.3-flash here", ALL),
+			"opencode-go/glm-5.3-flash",
 		);
 	});
 
-	it("uses Go GLM-5.3 for hard debug during the promo", () => {
-		const d = decide(cfg, base({
-			prompt: "Hard debug this race condition in the streaming renderer.",
-			now: offPeak,
-		}));
-		assert.equal(d.model, goGlm);
-		assert.equal(d.task, "hard_debug");
-	});
-
-	it("after the promo, defaults hard debug to Command Code GLM-5.3-Flash and escalates on retry", () => {
-		const first = decide(cfg, base({
-			prompt: "Hard debug this race condition in the streaming renderer.",
-			now: afterPromo,
-		}));
-		assert.equal(first.model, ccFlash);
-		const retry = decide(cfg, base({
-			reason: "retry",
-			failedId: ccFlash,
-			failedError: "overloaded",
-			prompt: "Hard debug this race condition in the streaming renderer.",
-			now: afterPromo,
-			previousTask: "hard_debug",
-		}));
-		assert.equal(retry.model, ccGlm);
-		assert.equal(retry.via, "retry");
-	});
-
-	it("sends direct (compaction) requests to a cheap/free model", () => {
-		const d = decide(cfg, base({ reason: "direct", prompt: "" }));
-		assert.equal(d.model, flint);
-		assert.equal(d.via, "direct");
-	});
-
-	it("prefers 1M-class models when the context is large", () => {
-		const d = decide(cfg, base({
-			prompt: "Please summarise what you have so far.",
-			contextChars: 400_000,
-			jev: { task: "routine_fix", confidence: 0.9 },
-		}));
-		assert.ok(meta[d.model].contextWindow >= 900_000, d.model);
-		assert.ok(d.task === "long_context" || d.model === goDs || d.model === goFlash);
-	});
-
-	it("does not downgrade when Jev confidence is low; defaults to routine_fix", () => {
-		const d = decide(cfg, base({
-			prompt: "What do you think about the approach we discussed?",
-			jev: { task: "hard_debug", confidence: 0.2 },
-		}));
-		assert.equal(d.task, "routine_fix");
-		assert.equal(d.model, goFlash);
-	});
-
-	it("honours a free pin", () => {
-		const d = decide(cfg, base({ pin: "free", prompt: "Hard debug this race condition." }));
-		assert.equal(d.model, flint);
-		assert.equal(d.via, "pin");
-	});
-
-	it("honours a subagent pin when configured", () => {
-		const withPin = {
-			...cfg,
-			subagentPins: { Explore: flint },
-		};
-		const d = decide(withPin, base({ subagentType: "Explore", prompt: "Please fix the typo in the header." }));
-		assert.equal(d.model, flint);
-		assert.equal(d.via, "subagent-pin");
+	it("prefers glm-5.3 over flash when the prompt does not say flash", () => {
+		assert.equal(explicitModel("switch to glm-5.3", ALL), "opencode-go/glm-5.3");
+		assert.equal(explicitModel("use glm-5.3-flash", ALL), "opencode-go/glm-5.3-flash");
 	});
 });
 
-describe("example config", () => {
-	it("is valid JSON with the hardDebug one-liners", () => {
-		const raw = JSON.parse(
-			readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../model-router_example.json"), "utf8"),
+describe("preRoute", () => {
+	it("sticks on continuation when the previous model is still a candidate", () => {
+		const pre = preRoute(
+			policy,
+			mechanics,
+			input({ reason: "continuation", previousId: "opencode-go/glm-5.3-flash" }),
 		);
-		assert.equal(raw.hardDebug.duringPromo, goGlm);
-		assert.equal(raw.hardDebug.afterPromo, ccFlash);
-		assert.equal(raw.hardDebug.afterPromoEscalate, ccGlm);
-		assert.equal(raw.hardDebug.promoUntil, "2026-11-22");
-		assert.deepEqual(raw.subagentPins, {});
+		assert.equal(pre.final?.via, "sticky");
+		assert.equal(pre.final?.model, "opencode-go/glm-5.3-flash");
+	});
+
+	it("routes direct requests to defaults.direct", () => {
+		const pre = preRoute(policy, mechanics, input({ reason: "direct" }));
+		assert.equal(pre.final?.via, "direct");
+		assert.equal(pre.final?.model, "command-code/recursive/flint-v1.0:free");
+	});
+
+	it("honours pin free/hard and refuses to wait on the decider", () => {
+		const free = preRoute(policy, mechanics, input({ pin: "free" }));
+		assert.equal(free.final?.via, "pin");
+		assert.equal(free.final?.model, "command-code/recursive/flint-v1.0:free");
+		const hard = preRoute(policy, mechanics, input({ pin: "hard" }));
+		assert.equal(hard.final?.model, "opencode-go/glm-5.3");
+	});
+
+	it("honours an explicit model name and refuses a training model", () => {
+		const ok = preRoute(policy, mechanics, input({ prompt: "use flint and fix this" }));
+		assert.equal(ok.final?.via, "explicit");
+		assert.equal(ok.final?.model, "command-code/recursive/flint-v1.0:free");
+		const no = preRoute(
+			policy,
+			mechanics,
+			input({
+				prompt: "use opencode-go/iceman-contributor-free",
+				available: new Set([...ALL, "opencode-go/iceman-contributor-free"]),
+			}),
+		);
+		assert.ok(!no.final || no.final.model !== "opencode-go/iceman-contributor-free");
+		assert.ok((no.final?.reasons ?? no.reasons).some((r) => /refusing explicit.*iceman/.test(r)));
+	});
+
+	it("on retry, walks order and skips the failed id without needing a decider", () => {
+		const pre = preRoute(
+			policy,
+			mechanics,
+			input({
+				reason: "retry",
+				failedId: "command-code/recursive/flint-v1.0:free",
+				failedError: "429 rate limit",
+			}),
+		);
+		assert.equal(pre.final?.via, "retry");
+		assert.equal(pre.final?.model, "opencode-go/glm-5.3-flash");
+		assert.match(pre.final?.reasons.join(" ") ?? "", /no decider wait/);
+	});
+
+	it("returns candidates and no final decision when the decider should be asked", () => {
+		const pre = preRoute(policy, mechanics, input({ prompt: "can you help me think through this design?" }));
+		assert.equal(pre.final, undefined);
+		assert.ok(pre.candidates.length >= 2);
+	});
+});
+
+describe("applyDecider", () => {
+	const pre = preRoute(policy, mechanics, input({ prompt: "help me design this" }));
+
+	it("uses a Jev/classifier/chat choice that is in the candidate list", () => {
+		assert.ok(pre.candidates.includes("opencode-go/glm-5.3-flash"));
+		const d = applyDecider(policy, pre, { choice: "opencode-go/glm-5.3-flash", confidence: 0.9, via: "jev" }, 0.45);
+		assert.equal(d.via, "jev");
+		assert.equal(d.model, "opencode-go/glm-5.3-flash");
+	});
+
+	it("falls open to fallback when confidence is low, the id is unknown, or the call errors", () => {
+		const low = applyDecider(policy, pre, { choice: "opencode-go/glm-5.3", confidence: 0.1, via: "jev" }, 0.45);
+		assert.equal(low.via, "fallback");
+		assert.equal(low.model, "opencode-go/glm-5.3-flash");
+		const bad = applyDecider(policy, pre, { choice: "acme/not-a-candidate", confidence: 0.99, via: "chat" }, 0.45);
+		assert.equal(bad.via, "fallback");
+		const err = applyDecider(policy, pre, { error: "timeout" }, 0.45);
+		assert.equal(err.via, "fallback");
+		assert.match(err.reasons.join(" "), /timeout/);
+	});
+});
+
+describe("walkOrder", () => {
+	it("skips a failed id and continues down the configured order", () => {
+		assert.equal(walkOrder(policy, ALL, "command-code/recursive/flint-v1.0:free"), "opencode-go/glm-5.3-flash");
+	});
+});
+
+describe("parseDeciderText", () => {
+	const cands = ["opencode-go/glm-5.3-flash", "command-code/recursive/flint-v1.0:free"];
+	it("accepts strict JSON, fenced JSON, a bare id, and a unique substring", () => {
+		assert.equal(parseDeciderText('{"choice":"opencode-go/glm-5.3-flash"}', cands), "opencode-go/glm-5.3-flash");
+		assert.equal(parseDeciderText('```json\n{"model":"command-code/recursive/flint-v1.0:free"}\n```', cands), "command-code/recursive/flint-v1.0:free");
+		assert.equal(parseDeciderText("opencode-go/glm-5.3-flash", cands), "opencode-go/glm-5.3-flash");
+		assert.equal(parseDeciderText("I pick acme/unknown", cands), undefined);
+	});
+});
+
+describe("routerModel catalog helpers", () => {
+	const catalog: CatalogEntry[] = [
+		{ spec: "command-code-jev/typesafe/jev", kind: "classifier", contextWindow: 32_768, name: "Jev (Command Code)" },
+		{ spec: "opencode-go/glm-5.3-flash", kind: "chat", contextWindow: 1_000_000 },
+		{ spec: "router/auto", kind: "chat", contextWindow: 1_000_000, virtual: true },
+	];
+
+	it("treats command-code/typesafe/jev as the HTTP Jev path", () => {
+		assert.equal(resolveDeciderKind("command-code/typesafe/jev", catalog), "jev-http");
+		assert.equal(resolveDeciderKind("command-code-jev/typesafe/jev", catalog), "jev-http");
+		assert.equal(resolveDeciderKind("opencode-go/glm-5.3-flash", catalog), "chat");
+		assert.equal(resolveDeciderKind("acme/missing", catalog), "missing");
+	});
+
+	it("validates picker values and lists Jev first under the canonical id", () => {
+		const ok = validateRouterModel("opencode-go/glm-5.3-flash", catalog);
+		assert.equal(ok.ok, true);
+		if (ok.ok) {
+			assert.equal(ok.spec, "opencode-go/glm-5.3-flash");
+			assert.equal(ok.contextWindow, 1_000_000);
+		}
+		const jev = validateRouterModel("command-code/typesafe/jev", catalog);
+		assert.equal(jev.ok, true);
+		if (jev.ok) assert.equal(jev.spec, JEV_CANONICAL);
+		const bad = validateRouterModel("nope", catalog);
+		assert.equal(bad.ok, false);
+		const rows = pickerEntries(catalog);
+		assert.equal(rows[0]?.spec, JEV_CANONICAL);
+		assert.equal(rows[0]?.contextWindow, 32_768);
+		assert.ok(!rows.some((r) => r.spec === "router/auto"));
+		const label = formatPickerOption(rows[0]!);
+		assert.equal(parsePickerOption(label), JEV_CANONICAL);
 	});
 });

@@ -14,5 +14,5 @@ that run as minimal pi sessions, so they work with providers that only accept
 pi's own traffic ([docs/extensions/microcall.md](docs/extensions/microcall.md));
 a starship-backed status line and compact transcript rendering
 ([docs/extensions/](docs/extensions/README.md)); an opt-in `router/auto`
-virtual model that picks a Go or Command Code model per task
+virtual model that picks a Go or Command Code model from a markdown policy
 ([docs/extensions/model-router.md](docs/extensions/model-router.md)).

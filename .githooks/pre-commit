@@ -7,8 +7,8 @@ set -uo pipefail
 fail=0
 
 # 1. Every staged path must be one the allowlist tracks (keep in sync with .gitignore).
-allowed='^(\.gitignore|\.githooks/.*|README\.md|SETUP\.md|setup\.sh|docs/.*|agent/(AGENTS\.md|settings\.shared\.json|pi\.env|model-state_example\.json|model-router_example\.json|pi-book_example\.json|keybindings\.json|extensions/.*|themes/.*))$'
-never='(^|/)(settings\.json|auth\.json|models\.json|models-store\.json|mcp\.json|mcp-adapter\.json|model-state\.json|model-router\.json|model-router-last\.json|\.env|trust\.json)$|(^|/)(sessions|memories|book|npm|stream|fff|subagents|secrets|tasks|skills)/'
+allowed='^(\.gitignore|\.githooks/.*|README\.md|SETUP\.md|setup\.sh|docs/.*|agent/(AGENTS\.md|settings\.shared\.json|pi\.env|model-state_example\.json|router_example\.json|router_example\.md|pi-book_example\.json|keybindings\.json|extensions/.*|themes/.*))$'
+never='(^|/)(settings\.json|auth\.json|models\.json|models-store\.json|mcp\.json|mcp-adapter\.json|model-state\.json|model-router\.json|model-router-last\.json|router\.json|router\.md|router\.parsed\.json|router\.staging\.md|\.env|trust\.json)$|(^|/)(sessions|memories|book|npm|stream|fff|subagents|secrets|tasks|skills)/'
 while IFS= read -r -d '' path; do
 	if [[ ! $path =~ $allowed ]] || [[ $path =~ $never ]]; then
 		echo "pre-commit: refusing to commit '$path' (not on the allowlist, or private state)" >&2
