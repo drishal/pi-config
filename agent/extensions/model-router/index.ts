@@ -32,6 +32,7 @@ import {
 } from "./decider.ts";
 import {
 	activatePolicy,
+	assertPersonalPath,
 	buildRouterPromptPath,
 	lastDecisionPath,
 	loadMechanics,
@@ -49,8 +50,10 @@ import {
 } from "./parse.ts";
 import {
 	applyDecider,
+	NoEligibleModelError,
 	preRoute,
 	type RouteDecision,
+	type RouteInput,
 } from "./policy.ts";
 import { formatReport, validatePolicy } from "./validate.ts";
 import { isJevModelId, JEV_CONTEXT_TOKENS } from "./tokens.ts";
@@ -212,6 +215,7 @@ function lookup(ctx: ExtensionContext, spec: string) {
 function writeLast(entry: LastDecision): void {
 	last = entry;
 	try {
+		assertPersonalPath(lastDecisionPath());
 		writeFileSync(lastDecisionPath(), JSON.stringify(entry, null, 2) + "\n", { mode: 0o600 });
 	} catch {
 		// machine-local log is best-effort
@@ -267,13 +271,23 @@ interface DeciderCall {
 	confidence?: number;
 }
 
+/**
+ * Timeout signal, combined with the request signal when pi provides one.
+ * `ModelRouteRequest.signal` is optional, and AbortSignal.any() throws on
+ * undefined entries, so never pass it through unfiltered.
+ */
+export function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
+	const timeout = AbortSignal.timeout(ms);
+	return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
 async function callDecider(
 	policy: RouterPolicy,
 	mechanics: MechanicsConfig,
 	ctx: ExtensionContext,
 	prompt: string,
 	candidates: string[],
-	signal: AbortSignal,
+	signal: AbortSignal | undefined,
 ): Promise<DeciderCall> {
 	const entries = catalogEntries(ctx);
 	const kind = resolveDeciderKind(mechanics.routerModel, entries);
@@ -298,12 +312,11 @@ async function callJevHttp(
 	policyText: string,
 	prompt: string,
 	question: { instructions: string; criteria: Record<string, string> },
-	signal: AbortSignal,
+	signal: AbortSignal | undefined,
 ): Promise<DeciderCall> {
 	const key = process.env.CMD_API_KEY || process.env.COMMAND_CODE_API_KEY;
 	if (!key) return { kind: "jev", error: "CMD_API_KEY / COMMAND_CODE_API_KEY is not set" };
-	const timeout = AbortSignal.timeout(mechanics.timeoutMs);
-	const combined = AbortSignal.any([signal, timeout]);
+	const combined = withTimeout(signal, mechanics.timeoutMs);
 	const started = Date.now();
 	let body: Record<string, unknown>;
 	try {
@@ -368,7 +381,7 @@ async function callClassifier(
 	policyText: string,
 	prompt: string,
 	question: { instructions: string; criteria: Record<string, string> },
-	signal: AbortSignal,
+	signal: AbortSignal | undefined,
 ): Promise<DeciderCall> {
 	const entry = findCatalog(mechanics.routerModel, entries);
 	const parts = (entry?.spec ?? mechanics.routerModel).split("/");
@@ -376,8 +389,7 @@ async function callClassifier(
 	const id = parts.slice(1).join("/");
 	const model = ctx.modelRegistry.findOfType("classifier", provider, id);
 	if (!model) return { kind: "classifier", error: `classifier ${provider}/${id} not in registry` };
-	const timeout = AbortSignal.timeout(mechanics.timeoutMs);
-	const combined = AbortSignal.any([signal, timeout]);
+	const combined = withTimeout(signal, mechanics.timeoutMs);
 	const started = Date.now();
 	try {
 		const result = await ctx.modelRegistry.classify(
@@ -421,14 +433,13 @@ async function callChatModel(
 	prompt: string,
 	candidates: string[],
 	criteria: Record<string, string>,
-	signal: AbortSignal,
+	signal: AbortSignal | undefined,
 ): Promise<DeciderCall> {
 	const entry = findCatalog(mechanics.routerModel, entries);
 	const spec = entry?.spec ?? mechanics.routerModel;
 	const model = lookup(ctx, spec);
 	if (!model) return { kind: "chat", error: `${spec} is not in the chat catalog` };
-	const timeout = AbortSignal.timeout(mechanics.chatTimeoutMs);
-	const combined = AbortSignal.any([signal, timeout]);
+	const combined = withTimeout(signal, mechanics.chatTimeoutMs);
 	const started = Date.now();
 	try {
 		const response = await ctx.modelRegistry.complete(
@@ -545,7 +556,8 @@ function injectBuildRouter(pi: ExtensionAPI, ctx: ExtensionContext, userText: st
 				ctx.ui.notify(`buildRouterModel ${override} is not in the catalog — not injecting`, "error");
 				return;
 			}
-			const ok = await ctx.setModel(model);
+			// setModel lives on the ExtensionAPI (pi), not on ExtensionContext.
+			const ok = await pi.setModel(model);
 			if (!ok) {
 				ctx.ui.notify(`could not switch to ${override} (provider not authenticated?)`, "error");
 				return;
@@ -608,7 +620,7 @@ export default function (pi: ExtensionAPI) {
 		const hasImages = lastUserHasImages(request.messages);
 		const pin = pins.get(sessionKey(ctx)) ?? request.state?.pin;
 
-		const pre = preRoute(snap.policy, snap.mechanics, {
+		const routeInput: RouteInput = {
 			reason: request.reason,
 			prompt,
 			hasImages,
@@ -631,7 +643,29 @@ export default function (pi: ExtensionAPI) {
 			subagentType: subagentType(),
 			available,
 			modelMeta,
-		});
+		};
+		const noteFailure = (err: unknown): never => {
+			if (err instanceof NoEligibleModelError) {
+				writeLast({
+					at: new Date().toISOString(),
+					model: "(none)",
+					via: "error",
+					reasons: [err.message],
+					skipped: err.skipped,
+					candidates: [],
+					reason: request.reason,
+					promptPreview: prompt.replace(/\s+/g, " ").slice(0, 240),
+				});
+			}
+			throw err;
+		};
+
+		let pre: ReturnType<typeof preRoute>;
+		try {
+			pre = preRoute(snap.policy, snap.mechanics, routeInput);
+		} catch (err) {
+			return noteFailure(err);
+		}
 
 		let decision: RouteDecision;
 		let deciderResult: DeciderCall | undefined;
@@ -779,7 +813,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("build-router", {
 		description: "Draft or rebuild router.md as a regular turn on the current (or buildRouterModel) model. /build-router --print shows the prompt only.",
-		handler: (args, ctx) => {
+		handler: async (args, ctx) => {
 			const raw = (args ?? "").trim();
 			const printOnly = raw === "--print" || raw.startsWith("--print ");
 			const userText = printOnly ? raw.replace(/^--print\s*/, "") : raw;

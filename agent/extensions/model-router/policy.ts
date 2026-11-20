@@ -65,6 +65,40 @@ export interface PreRoute {
 	skipped: string[];
 }
 
+/**
+ * Thrown when no physical model survives the hard filters (vision, missing
+ * credentials / not in catalog, training models), or when a retry has no
+ * model left other than the one that just failed. Routing must surface this
+ * instead of handing pi a model the filters excluded. `retryable` is set when
+ * the underlying failure (429 / quota / overload) may clear on its own, and
+ * the message then carries the original error so pi's retry logic sees it.
+ */
+export class NoEligibleModelError extends Error {
+	readonly retryable: boolean;
+	readonly skipped: string[];
+	constructor(message: string, opts: { retryable?: boolean; skipped?: string[] } = {}) {
+		super(message);
+		this.name = "NoEligibleModelError";
+		this.retryable = opts.retryable ?? false;
+		this.skipped = opts.skipped ?? [];
+	}
+}
+
+function noEligible(why: string, skipped: readonly string[]): NoEligibleModelError {
+	const detail = skipped.length ? ` — skipped: ${skipped.slice(0, 8).join("; ")}` : "";
+	return new NoEligibleModelError(`model-router: ${why}${detail}`, { skipped: [...skipped] });
+}
+
+/**
+ * defaults.fallback only when it is itself a surviving candidate (and not the
+ * id to skip). Never returns a model the hard filters removed.
+ */
+export function eligibleFallback(policy: RouterPolicy, candidates: readonly string[], skip?: string): string | undefined {
+	const fallback = policy.defaults.fallback;
+	if (fallback && fallback !== skip && candidates.includes(fallback)) return fallback;
+	return undefined;
+}
+
 const RATE_LIMIT = /429|rate.?limit|quota|overloaded|resource.?exhausted|too many requests|capacity|temporarily unavailable/i;
 const CONTEXT_OVERFLOW = /context (length|window|overflow)|too many tokens|maximum context|prompt is too long/i;
 
@@ -234,7 +268,13 @@ export function preRoute(policy: RouterPolicy, mechanics: MechanicsConfig, input
 		const model =
 			(preferred && candidates.includes(preferred) ? preferred : undefined) ||
 			walkOrder(policy, candidates) ||
-			policy.defaults.fallback;
+			eligibleFallback(policy, candidates);
+		if (!model) {
+			throw noEligible(
+				`no eligible model for ${via} request${preferred ? ` (wanted ${preferred})` : ""}: no candidate survived the hard filters`,
+				skipped,
+			);
+		}
 		const extra = preferred && model !== preferred ? ` (${preferred} was not a surviving candidate)` : "";
 		return finish(model, via, [why + extra, ...reasons], skipped, candidates);
 	};
@@ -309,7 +349,11 @@ export function preRoute(policy: RouterPolicy, mechanics: MechanicsConfig, input
 		);
 		if (isContextOverflow(input.failedError)) {
 			const longer = hardFilter(policy, { ...input, contextChars: Math.max(input.contextChars, mechanics.largeContextChars) }, mechanics);
-			const model = walkOrder(policy, longer.candidates, input.failedId) ?? walkOrder(policy, candidates, input.failedId) ?? policy.defaults.fallback;
+			const model =
+				walkOrder(policy, longer.candidates, input.failedId) ??
+				walkOrder(policy, candidates, input.failedId) ??
+				eligibleFallback(policy, candidates, input.failedId);
+			if (!model) throw retryExhausted(input, [...skipped, ...longer.skipped]);
 			return {
 				final: finish(model, "retry", reasons, [...skipped, ...longer.skipped], longer.candidates),
 				candidates: longer.candidates,
@@ -317,7 +361,8 @@ export function preRoute(policy: RouterPolicy, mechanics: MechanicsConfig, input
 				skipped,
 			};
 		}
-		const model = walkOrder(policy, candidates, input.failedId) ?? policy.defaults.fallback;
+		const model = walkOrder(policy, candidates, input.failedId) ?? eligibleFallback(policy, candidates, input.failedId);
+		if (!model) throw retryExhausted(input, skipped);
 		return {
 			final: finish(model, "retry", reasons, skipped, candidates),
 			candidates,
@@ -336,21 +381,27 @@ export function preRoute(policy: RouterPolicy, mechanics: MechanicsConfig, input
 	}
 
 	if (candidates.length === 0) {
-		return {
-			final: finish(
-				policy.defaults.fallback,
-				"fallback",
-				["no candidates survived hard filters — using defaults.fallback", ...reasons],
-				skipped,
-				candidates,
-			),
-			candidates,
-			reasons,
-			skipped,
-		};
+		throw noEligible("no candidate survived the hard filters (vision / credentials / training)", skipped);
 	}
 
 	return { candidates, reasons, skipped };
+}
+
+function retryExhausted(input: RouteInput, skipped: readonly string[]): NoEligibleModelError {
+	const err = input.failedError?.trim();
+	const retryable = isRetryableError(err);
+	const detail = skipped.length ? ` — skipped: ${skipped.slice(0, 8).join("; ")}` : "";
+	return new NoEligibleModelError(
+		`model-router: retry has no eligible model other than ${input.failedId}, which just failed${err ? `: ${err.slice(0, 200)}` : ""}${detail}`,
+		{ retryable, skipped: [...skipped] },
+	);
+}
+
+/** Fail-open target among surviving candidates; throws if there is none. */
+function openTarget(policy: RouterPolicy, pre: PreRoute): string {
+	const model = walkOrder(policy, pre.candidates) ?? eligibleFallback(policy, pre.candidates);
+	if (!model) throw noEligible("no candidate survived the hard filters", pre.skipped);
+	return model;
 }
 
 export function applyDecider(
@@ -361,7 +412,7 @@ export function applyDecider(
 ): RouteDecision {
 	const { candidates, reasons, skipped } = pre;
 	if ("error" in decider) {
-		const model = walkOrder(policy, candidates) ?? policy.defaults.fallback;
+		const model = openTarget(policy, pre);
 		return finish(
 			model,
 			"fallback",
@@ -371,7 +422,7 @@ export function applyDecider(
 		);
 	}
 	if (!candidates.includes(decider.choice)) {
-		const model = walkOrder(policy, candidates) ?? policy.defaults.fallback;
+		const model = openTarget(policy, pre);
 		return finish(
 			model,
 			"fallback",
@@ -407,7 +458,7 @@ export function applyDecider(
 }
 
 export function failOpen(policy: RouterPolicy, pre: PreRoute, why: string): RouteDecision {
-	const model = walkOrder(policy, pre.candidates) ?? policy.defaults.fallback;
+	const model = openTarget(policy, pre);
 	return {
 		model,
 		via: "fallback",

@@ -20,9 +20,19 @@ or `pi --model router/auto`. The extension never writes `defaultProvider` /
    `routerModel` (see below) with the compact policy and a truncated prompt.
    The choice must be one of those candidates. A timeout, parse error, unknown
    id, or low confidence falls open to `defaults.fallback` (low confidence
-   never upgrades).
+   never upgrades) — but only to a model that survived the hard rules.
 4. **Retry.** A 429, quota, overload or context-overflow error walks
-   `defaults.order` and does **not** wait on the decider.
+   `defaults.order`, skipping the model that just failed, and does **not**
+   wait on the decider. If no other eligible model is left, routing fails
+   with the original error (so pi's own retry/backoff still sees the 429)
+   instead of sending the same request straight back to the failed model.
+
+**Hard rules are never bypassed.** If no physical model survives them (no
+vision model for an image turn, no credentials, only training models), the
+request fails with a `model-router: no eligible model …` error listing what
+was skipped. That applies to pins, `direct` requests, subagent pins and
+explicit names too: `defaults.fallback` is used only when it is itself
+eligible. The failure is also recorded in `/router explain`.
 
 Promo dates, peak windows, caps, and task fit live in the markdown — the
 decider reads them. They are not hardcoded in TypeScript.
@@ -86,7 +96,11 @@ previous `router.md` is left unchanged, and the error shows the size, the
 window (and its source), and how much to trim.
 
 On load, if the file on disk is over budget or invalid, the last valid
-parsed policy (`router.parsed.json`) is kept.
+parsed policy (`router.parsed.json`) is kept — after it is re-validated
+against the **current** decider and window. A cache that fit an older, larger
+decider is not used after switching to a smaller one (e.g. `/router model`
+to Jev's 32K); the router falls back to the tracked example, or refuses to
+route with a warning if that does not fit either.
 
 ## Commands
 
@@ -110,6 +124,12 @@ node --experimental-strip-types ~/.pi/agent/extensions/model-router/cli.ts valid
 node --experimental-strip-types ~/.pi/agent/extensions/model-router/cli.ts apply ~/.pi/agent/router.staging.md
 ```
 
+The CLI cannot see pi's model registry. It uses `routerContextWindow` from
+`router.json` (which `/router model` fills in from the registry) or the Jev
+default, and warns when neither applies to the configured decider. Pass
+`--window <tokens>` to override, or use `/router validate` / `/router apply`
+inside pi, which read the registry.
+
 ## Configuration
 
 | File | Role | Tracked |
@@ -120,7 +140,15 @@ node --experimental-strip-types ~/.pi/agent/extensions/model-router/cli.ts apply
 | `agent/router.json` | machine overlay (`routerModel`, window, pins, …) | **no** |
 | `agent/router.parsed.json` | last valid parsed policy (load fallback) | **no** |
 | `agent/router.staging.md` | `/build-router` draft | **no** |
+| `agent/router.md.tmp` | transient file while `apply` writes `router.md` | **no** |
+| `agent/model-router-last.json` | last routing decision (`/router explain`) | **no** |
 | `agent/model-router.json` | legacy v1 overlay; still read for leftover mechanics | **no** |
+
+Every untracked file above is personal to one user and is never committed:
+`.gitignore` lists each by name (in addition to the `/agent/*` catch-all), and
+`.githooks/pre-commit` refuses them even with `git add -f`. The extension
+only writes these names, directly in `~/.pi/agent/`, and refuses to write the
+tracked `router_example.*` files or anything inside its own source directory.
 
 A missing `router.md` is fine — the tracked example is enough to run.
 `subagentPins` is an empty object by default.
@@ -133,6 +161,42 @@ Env (optional):
 
 Jev reuses `CMD_API_KEY` or `COMMAND_CODE_API_KEY` (already loaded from
 `.env`). Jev is not a `/model` chat entry and never drives a session.
+
+## Moving your router to another machine
+
+Your router is not in git, so carry it yourself. Copy these two files from
+`~/.pi/agent/` on the old machine to `~/.pi/agent/` on the new one (after
+cloning this repo and running `setup.sh` there):
+
+- `router.md` — your policy
+- `router.json` — your mechanics (`routerModel`, `routerContextWindow`,
+  `buildRouterModel`, pins, timeouts)
+
+Also copy `model-router.json` if you still have a legacy v1 file and never
+moved its settings into `router.json`.
+
+Do not copy `router.parsed.json`, `router.staging.md` or
+`model-router-last.json`. The parsed cache rebuilds itself: on the next pi
+start (or `/router reload`), `router.md` is parsed, budget-checked against
+that machine's decider, and cached. You do not need `/router apply`. Run
+`/router status` to confirm the policy source is `router.md` and no warning
+is shown. If it warns, the policy does not fit that machine's decider
+window (for example a different `routerModel`): trim `router.md` and run
+`/router validate`. Models that have no credentials on the new machine are
+simply skipped when routing; `/router explain` lists them.
+
+API keys are not part of this: put `OPENCODE_API_KEY` / `CMD_API_KEY` in
+that machine's `~/.pi/agent/.env` as usual.
+
+## Typecheck
+
+```bash
+agent/extensions/model-router/typecheck.sh
+```
+
+Strict `tsc --noEmit` of every model-router file against the installed pi's
+declarations (found from `pi` on `PATH`). It caches `typescript` and
+`@types/node` under `~/.cache/pi-config-tsc` and writes nothing into the repo.
 
 ## Tests
 
